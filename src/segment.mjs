@@ -109,6 +109,10 @@ export function buildTranscript(hostSession, children, budget = 300000) {
     parts.push(...segmentSession(c.events, c.key));
   }
   let text = parts.join('\n');
-  if (text.length > budget) text = text.slice(0, budget) + '\n…(超出预算，已截断)…';
+  if (text.length > budget) {
+    // 超预算：保头（需求背景）也保尾（最新进展），只截中段——尾段是最重要的实时信息
+    const headN = Math.floor(budget * 0.6);
+    text = text.slice(0, headN) + '\n…(中段超出预算，已截断)…\n' + text.slice(-(budget - headN));
+  }
   return text;
 }

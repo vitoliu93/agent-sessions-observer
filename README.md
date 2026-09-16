@@ -80,9 +80,14 @@ LLM 输出经 `normalizeMap` 过滤：非法边、缺题卡片一律丢弃。
 
 ## 已知边界（诚实清单）
 
-- **Cursor 会话**（`~/.cursor/chats/*/**/store.db`）是 SQLite，v1 不解析；地图 note 会
-  如实标注这类派发 `matched=no-file`。
-- 压缩质量依赖所选模型；换模型/换额度用 `--cli/--model`。
+- **Cursor Agent CLI 子会话已支持**：`herdr --kind cursor` 派发的会话落在
+  `~/.cursor/projects/<munged-cwd>/agent-transcripts/<uuid>/<uuid>.jsonl`，
+  按「prompt 头在前 300 字内 + mtime 时间窗」匹配（转写无 tool_result，结果体现在
+  assistant 文本里）。
+- **Cursor IDE 聊天**（`~/.cursor/chats/*/*/store.db` SQLite）仍不解析——它包含
+  `<user_info>` 等大段注入文本，误配风险高，暂不采信。
+- 压缩质量依赖所选模型；默认 `claude→haiku`、`codex→gpt-5.6-luna`，可用
+  `--cli/--model` 覆盖。haiku 压缩更激进（同会话 ~25 卡 vs 大模型 ~40 卡）。
 - 增量同步假设「同一工作的延续」，LLM 可能重排卡片——id 稳定性靠 prompt 约束 +
   prev cards 注入，非强保证。
 
@@ -94,6 +99,5 @@ LLM 输出经 `normalizeMap` 过滤：非法边、缺题卡片一律丢弃。
 
 ## Roadmap
 
-- Cursor SQLite 子会话解析（补齐 `matched=no-file`）
-- 会话内截图/产物关联到卡片 `ev`
 - 多 session 对比视图（同一需求两次执行的 diff）
+- 会话内截图/产物关联到卡片 `ev`

@@ -23,8 +23,9 @@ for (let i = 0; i < argv.length; i++) {
 }
 const PORT = +flag('--port', 4173);
 const INTERVAL = +flag('--interval', 60) * 1000;
-const MODEL = flag('--model', process.env.OBS_MODEL || '');
 const CLI = flag('--cli', process.env.OBS_CLI || 'claude');
+const DEFAULT_MODEL = { claude: 'haiku', codex: 'gpt-5.6-luna', pi: '' };  // 各 CLI 的默认压缩模型
+const MODEL = flag('--model', process.env.OBS_MODEL || DEFAULT_MODEL[CLI] || '');
 const PROVIDER = flag('--provider', process.env.OBS_PROVIDER || '');
 const BUDGET = +flag('--budget', 400000);
 

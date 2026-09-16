@@ -1,6 +1,7 @@
 // tree.mjs — agent 树重建：herdr 派生兄弟会话 + Agent(Task) 原生子agent + SendMessage
 import { parseSession, firstUserText, indexAllSessions, norm } from './parse.mjs';
 import { ANALYZER_PROMPT_HEAD } from './summarize.mjs';
+import { listCursorDbs, matchCursorDispatch, parseCursorSession } from './cursor.mjs';
 
 const HERDR_RE = /herdr agent (?:prompt|start)\s+([a-z][a-z0-9_-]{0,31})/g;
 const HERDR_PROMPT_RE = /herdr agent prompt\s+([a-z][a-z0-9_-]{0,31})\s+'([\s\S]*?)'/g;
@@ -60,6 +61,7 @@ export function buildTree(host) {
   const { file: hostFile, sessionId: hostId, events } = host;
   const dispatches = extractDispatches(events);
   const index = indexAllSessions().filter(s => s.sessionId !== hostId).sort((a,b) => a.file.localeCompare(b.file));
+  const cursorDbs = listCursorDbs();   // 惰性读内容：matchCursorDispatch 内按 mtime 短路
 
   // 每个候选 session 只取一次首条 user 文本（带缓存）
   const firstTextCache = new Map();
@@ -100,12 +102,19 @@ export function buildTree(host) {
       hits.push(s);
     }
     hits.sort((a, b) => b.size - a.size || a.file.localeCompare(b.file));
-    const hit = hits[0] || null;
+    let hit = hits[0] || null;
+    let matched = hit ? 'prompt-head' : 'no-file';
+    // claude 未命中 → 试 Cursor 子会话（herdr --kind cursor 落在 ~/.cursor/chats 的 SQLite）
+    let cursorDb = null;
+    if (!hit && d.ts) {
+      cursorDb = matchCursorDispatch(d, cursorDbs);
+      if (cursorDb) { hit = { file: cursorDb.db, sessionId: cursorDb.sid }; matched = 'cursor-transcript'; }
+    }
     if (hit) usedFiles.add(hit.file);
     mergeChild({
       key: d.key, label: d.label, kind: d.kind, meta: d.meta,
       file: hit?.file || null, sessionId: hit?.sessionId || null,
-      dispatchLine: d.line, matched: hit ? 'prompt-head' : (d.kind === 'herdr' ? 'no-file' : 'no-file'),
+      dispatchLine: d.line, matched,
     });
   }
   // start-only 派发（无文案）：并进同名 child
@@ -116,7 +125,7 @@ export function buildTree(host) {
 
   for (const c of children) {
     if (c.file) {
-      const parsed = parseSession(c.file);
+      const parsed = c.file.includes('/.cursor/projects/') ? parseCursorSession(c.file) : parseSession(c.file);
       c.events = parsed.events.filter(e => !e.side);
     } else {
       c.events = [];
