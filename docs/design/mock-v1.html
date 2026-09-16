@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Session 观察台 · 设计 Mock</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --line:#2a2f3a;
+    --tx:#e5e7eb; --muted:#9ca3af; --dim:#6b7280;
+    --done:#34d399; --work:#60a5fa; --err:#f87171; --wait:#64748b;
+    --fork:#a78bfa; --amber:#fbbf24;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  body{background:var(--bg); color:var(--tx); font:14px/1.5 -apple-system,"PingFang SC","Segoe UI",sans-serif; min-width:1180px}
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+
+  /* ── top bar ─────────────────────────────── */
+  .topbar{display:flex; align-items:center; gap:14px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:20}
+  .brand{font-weight:700; font-size:15px; letter-spacing:.3px; white-space:nowrap}
+  .brand .tag{font-size:10px; font-weight:600; color:var(--fork); border:1px solid var(--fork); border-radius:99px; padding:1px 8px; margin-left:8px; vertical-align:2px}
+  .controls{display:flex; align-items:center; gap:10px; flex:1}
+  .controls input[type=text]{flex:0 1 380px; background:#0b0d12; border:1px solid var(--line); color:var(--tx); border-radius:8px; padding:7px 12px; font-size:12px}
+  .controls input[type=text]:focus{outline:none; border-color:var(--work)}
+  button{background:var(--panel2); color:var(--tx); border:1px solid var(--line); border-radius:8px; padding:7px 16px; font-size:13px; cursor:pointer; transition:.15s}
+  button:hover{border-color:var(--work); color:#fff}
+  button.primary{background:#2563eb; border-color:#2563eb; font-weight:600}
+  button.primary:hover{background:#3b82f6}
+  button:disabled{opacity:.4; cursor:not-allowed}
+  label.auto{display:flex; align-items:center; gap:6px; color:var(--muted); font-size:12px; cursor:pointer; user-select:none}
+  .statuschip{font-size:12px; color:var(--muted); white-space:nowrap}
+  .statuschip b{color:var(--done); font-weight:600}
+
+  /* ── agent tree strip ────────────────────── */
+  .strip{display:flex; align-items:center; gap:10px; padding:10px 20px; border-bottom:1px solid var(--line); background:#12151b; flex-wrap:wrap}
+  .chip{display:flex; align-items:center; gap:7px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:5px 12px; font-size:12px}
+  .chip .rel{color:var(--dim); font-size:11px; margin-right:2px}
+  .chip.root{border-color:#3b5bdb66; background:#1a2030}
+  .dot{width:8px; height:8px; border-radius:50%; flex:none}
+  .dot.done{background:var(--done); box-shadow:0 0 6px var(--done)}
+  .dot.working{background:var(--work); box-shadow:0 0 6px var(--work); animation:blink 1.2s infinite}
+  .dot.idle{background:var(--wait)}
+  .dot.error{background:var(--err); box-shadow:0 0 6px var(--err)}
+  @keyframes blink{50%{opacity:.35}}
+
+  /* ── legend ──────────────────────────────── */
+  .legend{display:flex; gap:18px; align-items:center; padding:8px 20px; font-size:11.5px; color:var(--muted); border-bottom:1px solid var(--line); flex-wrap:wrap}
+  .legend .sw{display:inline-block; width:22px; height:0; border-top:2px solid; vertical-align:3px; margin-right:5px}
+  .legend .bx{display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-2px; margin-right:5px}
+
+  /* ── stage ───────────────────────────────── */
+  .stage{overflow-x:auto; padding:6px 12px 2px; background:radial-gradient(1200px 400px at 30% 0%, #141926 0%, var(--bg) 60%)}
+  svg{display:block}
+  g.node{cursor:pointer; transition:opacity .55s}
+  g.node.off{opacity:0; pointer-events:none}
+  g.node .box{transition:stroke .3s, fill .3s}
+  g.node:hover .box{filter:brightness(1.35)}
+  g.node.st-working .box{animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{50%{stroke-opacity:.3}}
+  path.edge{fill:none; transition:opacity .55s}
+  path.edge.off{opacity:0}
+  text.elabel{font-size:10px; paint-order:stroke; stroke:#0f1115; stroke-width:3.5px; font-weight:600}
+  svg.focus g.node:not(.hl){opacity:.16}
+  svg.focus path.edge:not(.hl){opacity:.05}
+  svg.focus text.elabel:not(.hl){opacity:.08}
+
+  /* ── drawer ──────────────────────────────── */
+  #drawer{position:fixed; right:0; top:0; bottom:0; width:360px; background:var(--panel); border-left:1px solid var(--line); z-index:30; padding:18px; transform:translateX(102%); transition:transform .25s; overflow-y:auto}
+  #drawer.open{transform:none}
+  #drawer h3{font-size:15px; margin-bottom:4px}
+  #drawer .sub{color:var(--muted); font-size:12px; margin-bottom:14px}
+  #drawer .kv{display:flex; gap:8px; font-size:12px; margin:6px 0}
+  #drawer .kv b{color:var(--muted); font-weight:500; flex:0 0 72px}
+  #drawer .evbox{background:#0b0d12; border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:11px; color:#a5b4fc; margin:10px 0; word-break:break-all}
+  #drawer ul{margin:8px 0 0 18px; font-size:12.5px; color:#d1d5db}
+  #drawer li{margin:4px 0}
+  #drawer .close{position:absolute; top:12px; right:12px; border:none; background:none; font-size:18px; color:var(--muted); cursor:pointer}
+
+  /* ── pipeline overlay ────────────────────── */
+  #pipe{position:fixed; inset:0; background:rgba(10,12,16,.78); backdrop-filter:blur(3px); z-index:40; display:flex; align-items:center; justify-content:center}
+  #pipe.hidden{display:none}
+  .pipecard{width:430px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px 26px}
+  .pipecard h4{font-size:14px; margin-bottom:14px; color:var(--tx)}
+  .pstep{display:flex; align-items:center; gap:10px; font-size:13px; color:var(--dim); padding:5px 0; transition:.2s}
+  .pstep .mark{width:16px; text-align:center}
+  .pstep.run{color:var(--work)}
+  .pstep.ok{color:var(--tx)}
+  .pstep.ok .mark{color:var(--done)}
+
+  /* ── notes ───────────────────────────────── */
+  .notes{padding:16px 24px 30px; color:var(--muted); font-size:12.5px; border-top:1px solid var(--line); margin-top:8px}
+  .notes h5{color:var(--tx); font-size:13px; margin:12px 0 6px}
+  .notes li{margin:3px 0 3px 18px}
+  .muted{color:var(--dim)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">◉ Agent Session 观察台<span class="tag">设计 MOCK</span></div>
+  <div class="controls">
+    <input type="text" id="sid" class="mono" value="9161063c-c85c-4961-8558-6e63f48f7e46" spellcheck="false">
+    <button class="primary" id="btnStart">开始观察</button>
+    <button id="btnSync">模拟同步 →</button>
+    <label class="auto"><input type="checkbox" id="auto"> 自动同步(4s)</label>
+    <span class="statuschip" id="stat">待观察</span>
+  </div>
+</div>
+
+<div class="strip" id="strip"></div>
+
+<div class="legend">
+  <span><span class="bx" style="background:rgba(52,211,153,.15);border:1.5px solid var(--done)"></span>完成</span>
+  <span><span class="bx" style="background:rgba(96,165,250,.12);border:1.5px solid var(--work)"></span>进行中</span>
+  <span><span class="bx" style="background:rgba(248,113,113,.12);border:1.5px solid var(--err)"></span>失败/报错</span>
+  <span><span class="bx" style="border:1.5px dashed var(--wait)"></span>等待/挂起</span>
+  <span style="margin-left:14px"><span class="sw" style="border-color:#5b6472"></span>顺序流</span>
+  <span><span class="sw" style="border-color:var(--fork)"></span>派生 / 收束</span>
+  <span><span class="sw" style="border-color:var(--err);border-top-style:dashed"></span>重试 / 失败回路</span>
+  <span class="muted" style="margin-left:auto">点击节点查看证据链 · 再点空白处复位</span>
+</div>
+
+<div class="stage" id="stage"></div>
+
+<aside id="drawer">
+  <button class="close" id="dClose">✕</button>
+  <div id="dBody"><h3>Episode 详情</h3><div class="sub">点击图中任意节点查看证据链。</div></div>
+</aside>
+
+<div id="pipe" class="hidden">
+  <div class="pipecard">
+    <h4>正在重建工作流 <span class="mono muted" id="pipeSid"></span></h4>
+    <div id="pipeSteps"></div>
+  </div>
+</div>
+
+<div class="notes">
+  <h5>设计说明（本页即渲染器规格）</h5>
+  <ul>
+    <li><b>泳道 × 主线收束</b>：主 agent 永远占据中央主干道，sub agent / Herdr 并行 agent / 后台哨兵各占一条侧道；<span style="color:var(--fork)">紫色边 = 派生（fork）与收束（merge）</span>，所有侧道最终以紫色边汇回主线的「收束」节点 —— 这就是「树收束回主线」的显式表达。</li>
+    <li><b>Episode 压缩</b>：节点不是 tool call，而是「意图 + 结果」的回合（如「回归门：8 条 10 秒片」），由规则粗切 + LLM 聚合产生，全图节点数硬上限 20。</li>
+    <li><b>回路即卡点</b>：红色虚线回边 = 重试/失败回路（如 p4 →p3 「修复后重跑」）；m8 → p4 的淡色虚线是「结果不变门 FAIL 回流」，表示收束之后仍可能打回开发道。</li>
+    <li><b>实时更新 = 幂等快照</b>：每次同步只是对 transcript 重新跑一遍同一管线，新 episode 就地淡入、状态就地变色 —— 不存在增量对账问题。右上有「模拟同步」可预演 4 个观察时刻。</li>
+    <li><b>可溯源</b>：每个 episode 挂着证据（原 JSONL 行号区间 / 产出文件），点节点即 drill-down，图与原始记录之间永远可对账。</li>
+    <li class="muted">本页零依赖（无 CDN / 无构建），真实实现目标同样为单文件 CLI + 零依赖 HTTP server，只读 ~/.claude/projects。</li>
+  </ul>
+</div>
+
+<script>
+/* ───────────────────────── 数据（结构对齐 9161063c 真实会话，数值为演示虚构） ───────────────────────── */
+const COLS = ['21:02','21:04','21:10','21:18','21:22','21:35','21:52','22:07','22:15','22:26'];
+const LANES = [
+  {id:'reviewer', name:'fr4-reviewer',      sub:'Claude · Opus 5 · 审核',      lamps:['working','idle','idle','idle']},
+  {id:'main',     name:'主 agent · 9161063c', sub:'orchestrator · 复杂任务主干', lamps:['working','working','working','done'], spine:true},
+  {id:'aux',      name:'哨兵 & Task 子agent', sub:'后台任务 ×3',                 lamps:['idle','working','done','done']},
+  {id:'prog',     name:'fr4-programmer',    sub:'Cursor · Grok 4.6 · 开发',    lamps:['working','working','working','done']},
+];
+const TICKS = 4;
+const EP = [
+ {id:'m1',lane:'main',col:0,lines:['接收任务','IKG4Y2 · 第4轮提速'],st:['done'],meta:'21:02 · 1.2k tok',
+  ev:'9161063c….jsonl · L88–L140 · Read×3',facts:['读 todo 与第3轮结果 c7067b8a','确认本轮目标：30s 片 330s → ≤120s']},
+ {id:'m2',lane:'main',col:1,lines:['前置实测','ICC Router 并发探测'],st:['done'],meta:'21:04 · 4.1k tok',
+  ev:'L141–L260 · Bash×9 · curl 小图请求',facts:['1/4/8/12 路并发各测一轮','8 路变慢未复现 → 收回「网关排队」结论']},
+ {id:'m3',lane:'main',col:2,lines:['写第4轮契约','C31–C36 · 角色卡×2'],st:['done'],meta:'21:10 · 3.6k tok',
+  ev:'round4.md · card-{reviewer,programmer}-4.md',facts:['结果不变门：分数逐项相等（1e-6）','C36 阶段复用 --reuse-from 定义']},
+ {id:'m4',lane:'main',col:3,lines:['派发第4轮','2 个子 agent'],st:['done'],meta:'21:18 · herdr prompt ×2',
+  ev:'Bash: herdr agent prompt fr4-reviewer / fr4-programmer',facts:['reviewer 走 Opus，programmer 走 Cursor','均禁 git commit / push / checkout'],fork:2},
+ {id:'m5',lane:'main',col:4,lines:['挂哨兵 & 委派','后台 ×3'],st:['done'],meta:'21:22 · run_in_background',
+  ev:'wait-result.sh ×2 + Task(tool_use_9f2)',facts:['监视 reviewer-4a.md ← DONE-4A','监视 programmer-4.md ← ROUND4 DONE'],fork:3},
+ {id:'m6',lane:'main',col:6,lines:['等待与监视','主线挂起'],st:['hidden','waiting','waiting','done'],meta:'21:35–22:07 · 无事件',
+  ev:'sentinel: wait-result.sh（后台）',facts:['transcript 无新增写入，观察台保持上次快照']},
+ {id:'m7',lane:'main',col:7,lines:['收束','汇总 4 路结果'],st:['hidden','hidden','working','done'],meta:'22:07 · 5.8k tok',
+  ev:'Read reviewer-4a.md + programmer-4.md + 基线快照',facts:['合并审核结论与实现产出','2 条审核建议转入验收清单'],merge:4},
+ {id:'m8',lane:'main',col:8,lines:['结果不变门','分数逐项比对'],st:['hidden','hidden','working','done'],meta:'22:15 · PASS ✓',
+  ev:'--reuse-from /tmp/fr-acc/r3b · 误差 1e-6',facts:['font 名字与分数逐项相等','compare_truth PASS ≥ r3b 基线 · 命中 16/23']},
+ {id:'m9',lane:'main',col:9,lines:['产出','复盘图 + 验收报告'],st:['hidden','hidden','hidden','done'],meta:'22:26 · 2.9k tok',
+  ev:'round4-report.md（本图即由该管线生成）',facts:['流程图 + 时间线 + episode 对照表']},
+ {id:'r1',lane:'reviewer',col:3,lines:['读角色卡','card-reviewer-4'],st:['done'],meta:'21:19 · 0.8k tok',
+  ev:'fr4-reviewer….jsonl · L12–L40',facts:['阶段 A 范围：只审不修']},
+ {id:'r2',lane:'reviewer',col:4,lines:['阶段 A 审核','C31–C36 实现'],st:['working','done'],meta:'21:22–21:31 · 9.4k tok',
+  ev:'L41–L210 · Read×14 · Grep×6',facts:['重点：并发合并后的排序一致性']},
+ {id:'r3',lane:'reviewer',col:5,lines:['写审核报告','DONE-4A'],st:['hidden','done'],meta:'21:35 · 2.1k tok',
+  ev:'reviewer-4a.md（末尾标记 DONE-4A）',facts:['2 条建议：批间排序稳定性 / 哨兵超时']},
+ {id:'r4',lane:'reviewer',col:6,lines:['停等阶段 B','等待 host 通知'],st:['hidden','waiting','waiting','waiting'],meta:'idle · 按角色卡约定',
+  ev:'—（transcript 静默）',facts:['不主动退出，等 host 发阶段 B']},
+ {id:'a1',lane:'aux',col:4,lines:['哨兵 ×2','监听 DONE 标记'],st:['done'],meta:'21:22 · 后台进程',
+  ev:'wait-result.sh（timeout 2400s / 14400s）',facts:['轮询结果文件末尾标记']},
+ {id:'a2',lane:'aux',col:5,lines:['Task 子agent','比对 r3b 基线'],st:['hidden','working','done'],meta:'21:35 · 6.3k tok',
+  ev:'Task → 独立子 transcript',facts:['解析 eval.json 的 now 列','产出：基线快照 JSON 供 m8 比对']},
+ {id:'a3',lane:'aux',col:6,lines:['哨兵捕获','ROUND4 DONE'],st:['hidden','hidden','working','done'],meta:'22:04 · 标记命中',
+  ev:'sentinel stdout → 唤醒主线',facts:['programmer-4.md 末尾标记命中']},
+ {id:'p1',lane:'prog',col:3,lines:['读角色卡','card-programmer-4'],st:['done'],meta:'21:19 · 0.9k tok',
+  ev:'fr4-programmer….jsonl · L10–L38',facts:['步骤清单：C31→C36 顺序执行']},
+ {id:'p2',lane:'prog',col:4,lines:['实现 C31–C36','分片并发 + VLM 并发'],st:['working','done'],meta:'21:22–21:48 · 31k tok',
+  ev:'Edit×22 · Bash×17',facts:['font_candidates 分片 N=min(8,cpu)','ICCCUT_VLM_CONCURRENCY 默认 4']},
+ {id:'p3',lane:'prog',col:5,lines:['回归门','8 条 10 秒片'],st:['hidden','error','done','done'],meta:'21:52 · 首跑 2/8 失败',
+  ev:'pytest + compare_style.py',facts:['批间合并顺序导致候选抖动','修复后重跑 8/8 PASS']},
+ {id:'p4',lane:'prog',col:6,lines:['修复','批间合并排序'],st:['hidden','hidden','done'],meta:'21:58 · Edit×4',
+  ev:'merge_shards() 排序键补齐',facts:['按 (mask_hash, text) 稳定排序']},
+ {id:'p5',lane:'prog',col:7,lines:['重跑 PASS','ROUND4 DONE'],st:['hidden','hidden','working','done'],meta:'22:07 · 30s 片 118s ✓',
+  ev:'metrics.json：font_workers=8',facts:['elapsed 411s → 118s（≤120 门）']},
+];
+const EDGES = [
+ {f:'m1',t:'m2'},{f:'m2',t:'m3'},{f:'m3',t:'m4'},{f:'m4',t:'m5'},{f:'m5',t:'m6'},{f:'m6',t:'m7'},{f:'m7',t:'m8'},{f:'m8',t:'m9'},
+ {f:'m4',t:'r1',k:'fork',label:'派发'},
+ {f:'m4',t:'p1',k:'fork'},
+ {f:'m5',t:'a1',k:'fork',label:'挂哨兵'},
+ {f:'m5',t:'a2',k:'fork',label:'委派'},
+ {f:'r1',t:'r2'},{f:'r2',t:'r3',min:1},{f:'r3',t:'r4',min:1},
+ {f:'p1',t:'p2'},{f:'p2',t:'p3',min:1},
+ {f:'p3',t:'p4',min:2},{f:'p4',t:'p3',k:'back',label:'重跑',min:2,bow:34},
+ {f:'p3',t:'p5',min:3,bow:46,label:'通过'},
+ {f:'a1',t:'a3',min:2,bow:-40},
+ {f:'r3',t:'m7',k:'merge',label:'DONE-4A',min:2},
+ {f:'p5',t:'m7',k:'merge',label:'ROUND4 DONE',min:3},
+ {f:'a2',t:'m7',k:'merge',min:3},
+ {f:'a3',t:'m7',k:'merge',min:3},
+ {f:'m8',t:'p4',k:'fail',label:'FAIL 回路',min:3,faint:true},
+];
+/* 每个观察时刻的汇总数据（真实实现里由管线统计产生） */
+const SNAP = [
+ {ev:14, tok:'42k', note:'reviewer/programmer 并行开工'},
+ {ev:17, tok:'61k', note:'reviewer 完成 A 轮 · programmer 回归失败'},
+ {ev:19, tok:'74k', note:'修复重跑中 · 主线开始收束'},
+ {ev:21, tok:'89k', note:'收束完成 · 结果不变门 PASS · 产出报告'},
+];
+
+/* ───────────────────────── 渲染 ───────────────────────── */
+const LANE_X=176, COL_W=176, NODE_W=150, NODE_H=60, RULER_H=30, LANE_H=116;
+const SVG_W=LANE_X+COLS.length*COL_W+24, SVG_H=RULER_H+LANES.length*LANE_H+16;
+const NS='http://www.w3.org/2000/svg';
+const stage=document.getElementById('stage');
+let tick=0, syncN=0;
+
+const stOf=e=>{ const s=e.st[Math.min(tick,e.st.length-1)]; return s||'hidden'; };
+const pos=e=>{ const i=LANES.findIndex(l=>l.id===e.lane);
+  return {cx:LANE_X+e.col*COL_W+COL_W/2, cy:RULER_H+i*LANE_H+LANE_H/2, row:i}; };
+const ep=id=>EP.find(x=>x.id===id);
+
+function el(tag,attrs,parent){ const n=document.createElementNS(NS,tag);
+  for(const k in attrs)n.setAttribute(k,attrs[k]); (parent||svg).appendChild(n); return n; }
+
+let svg;
+function build(){
+  stage.innerHTML='';
+  svg=document.createElementNS(NS,'svg');
+  svg.setAttribute('width',SVG_W); svg.setAttribute('height',SVG_H);
+  stage.appendChild(svg);
+
+  /* defs: arrowheads */
+  const defs=el('defs',{});
+  [['flow','#5b6472'],['fork','#a78bfa'],['merge','#a78bfa'],['back','#f87171'],['fail','#f87171']].forEach(([k,c])=>{
+    const m=el('marker',{id:'ah-'+k,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'},defs);
+    el('path',{d:'M0,0 L10,5 L0,10 z',fill:c},m);
+  });
+
+  /* lane bands + spine */
+  LANES.forEach((l,i)=>{
+    const y=RULER_H+i*LANE_H;
+    if(l.spine) el('rect',{x:0,y:y,width:SVG_W,height:LANE_H,fill:'rgba(96,165,250,.055)'});
+    el('line',{x1:0,y1:y,x2:SVG_W,y2:y,stroke:'#20242e','stroke-width':1});
+    /* lane header card */
+    const g=el('g',{class:'lanehead'});
+    const card=el('rect',{x:12,y:y+22,width:150,height:LANE_H-58,rx:9,fill:l.spine?'#1a2030':'#171a21',stroke:l.spine?'#3b5bdb88':'#2a2f3a'},g);
+    el('text',{x:24,y:y+44,fill:l.spine?'#c7d2fe':'#e5e7eb','font-size':12,'font-weight':600},g).textContent=l.name;
+    el('text',{x:24,y:y+61,fill:'#8b93a3','font-size':10},g).textContent=l.sub;
+    const dot=el('circle',{cx:148,cy:y+40,r:4.5,class:'lamp',id:'lamp-'+l.id},g);
+  });
+  el('line',{x1:0,y1:RULER_H+LANES.length*LANE_H,x2:SVG_W,y2:RULER_H+LANES.length*LANE_H,stroke:'#20242e'});
+
+  /* ruler */
+  COLS.forEach((t,c)=>{
+    el('text',{x:LANE_X+c*COL_W+COL_W/2,y:20,fill:'#5b6472','font-size':10,'text-anchor':'middle','class':'mono'}).textContent=t;
+    if(c)el('line',{x1:LANE_X+c*COL_W,y1:RULER_H,x2:LANE_X+c*COL_W,y2:SVG_H-16,stroke:'#1a1e27','stroke-width':1,'stroke-dasharray':'2 6'});
+  });
+
+  /* edges below nodes */
+  EDGES.forEach((ed,i)=>{
+    const a=pos(ep(ed.f)), b=pos(ep(ed.t));
+    const k=ed.k||'flow', color={flow:'#5b6472',fork:'#a78bfa',merge:'#a78bfa',back:'#f87171',fail:'#f87171'}[k];
+    const hw=NODE_W/2, hh=NODE_H/2;
+    let d,lx,ly;
+    const sameCol=a.col===b.col; /* via ep col */
+    const A=ep(ed.f),B=ep(ed.t);
+    if(A.col===B.col && b.row!==a.row){          /* vertical fork/merge */
+      const sy=a.cy+(b.row>a.row?hh:-hh), ty=b.cy+(b.row>a.row?-hh:hh);
+      const mx=(a.cx+b.cx)/2;
+      d=`M ${mx} ${sy} C ${mx} ${sy+(b.row>a.row?34:-34)} ${mx} ${ty+(b.row>a.row?-34:34)} ${mx} ${ty}`;
+      lx=mx+8; ly=(sy+ty)/2;
+    }else if(b.row===a.row && B.col>A.col && !ed.bow){   /* forward same row */
+      d=`M ${a.cx+hw} ${a.cy} C ${a.cx+hw+50} ${a.cy} ${b.cx-hw-50} ${b.cy} ${b.cx-hw} ${b.cy}`;
+      lx=(a.cx+b.cx)/2; ly=a.cy-8;
+    }else if(b.row===a.row && ed.bow){            /* bowed same-row (skip / retry) */
+      const up=ed.bow<0, off=Math.abs(ed.bow), dir=(B.col>A.col)?1:-1;
+      const sx=dir>0?a.cx+hw:a.cx-hw, tx=dir>0?b.cx-hw:b.cx+hw;
+      d=`M ${sx} ${a.cy} C ${sx+dir*40} ${a.cy+ed.bow} ${tx-dir*40} ${b.cy+ed.bow} ${tx} ${b.cy}`;
+      lx=(sx+tx)/2; ly=a.cy+ed.bow+(up?-10:16);
+    }else if(ed.k==='fail'){                      /* fail回流: m8 -> p4 */
+      const sx=a.cx, sy=a.cy+hh, tx=b.cx, ty=b.cy-hh;
+      d=`M ${sx} ${sy} C ${sx-30} ${sy+80} ${tx+60} ${ty-80} ${tx} ${ty}`;
+      lx=(sx+tx)/2+46; ly=(sy+ty)/2+6;
+    }else{                                        /* cross-row forward */
+      const dir=B.col>A.col?1:-1;
+      const sx=a.cx+dir*hw, tx=b.cx-dir*hw;
+      const c1x=sx+dir*Math.abs(b.cx-a.cx)*.3, c2x=tx-dir*Math.abs(b.cx-a.cx)*.3;
+      d=`M ${sx} ${a.cy} C ${c1x} ${a.cy+(b.row>a.row?26:-26)} ${c2x} ${b.cy+(b.row>a.row?-26:26)} ${tx} ${b.cy}`;
+      lx=(sx+tx)/2; ly=(a.cy+b.cy)/2+(b.row>a.row?4:-8);
+    }
+    const p=el('path',{d,class:'edge','stroke':color,'stroke-width':k==='flow'?1.6:2,
+      'marker-end':`url(#ah-${k})`,'stroke-dasharray':(k==='back'||k==='fail')?'6 5':(ed.min>=1&&k==='flow'&&ed.bow?'6 5':'none'),
+      opacity:ed.faint?.45:1});
+    p.dataset.f=ed.f; p.dataset.t=ed.t; p.dataset.min=ed.min||0; p.dataset.k=k;
+    if(ed.label){
+      const t=el('text',{x:lx,y:ly,class:'elabel','text-anchor':'middle',fill:k==='flow'?'#8b93a3':color});
+      t.textContent=ed.label; t.dataset.f=ed.f; t.dataset.t=ed.t; t.dataset.min=ed.min||0;
+    }
+  });
+
+  /* nodes */
+  EP.forEach(e=>{
+    const {cx,cy}=pos(e);
+    const g=el('g',{class:'node',id:'n-'+e.id});
+    g.dataset.id=e.id;
+    el('rect',{class:'box',x:cx-NODE_W/2,y:cy-NODE_H/2,width:NODE_W,height:NODE_H,rx:10,'stroke-width':1.6},g);
+    el('text',{x:cx,y:cy-9,'text-anchor':'middle','font-size':12,'font-weight':600,class:'t1'},g).textContent=e.lines[0];
+    el('text',{x:cx,y:cy+6,'text-anchor':'middle','font-size':11,class:'t2'},g).textContent=e.lines[1];
+    el('text',{x:cx,y:cy+23,'text-anchor':'middle','font-size':9.5,class:'t3 mono'},g).textContent=e.meta;
+    if(e.fork){ /* 派生数量角标 */
+      el('rect',{x:cx+NODE_W/2-30,y:cy-NODE_H/2-9,width:30,height:15,rx:7,fill:'#a78bfa22',stroke:'#a78bfa','stroke-width':.8},g);
+      el('text',{x:cx+NODE_W/2-15,y:cy-NODE_H/2+2,'text-anchor':'middle','font-size':9,fill:'#a78bfa'},g).textContent='↗'+e.fork;
+    }
+    if(e.merge){
+      el('rect',{x:cx+NODE_W/2-30,y:cy-NODE_H/2-9,width:30,height:15,rx:7,fill:'#a78bfa22',stroke:'#a78bfa','stroke-width':.8},g);
+      el('text',{x:cx+NODE_W/2-15,y:cy-NODE_H/2+2,'text-anchor':'middle','font-size':9,fill:'#a78bfa'},g).textContent='↙'+e.merge;
+    }
+    g.addEventListener('click',ev=>{ev.stopPropagation();select(e.id);});
+  });
+  svg.addEventListener('click',()=>deselect());
+
+  apply();
+}
+
+const STYLE={
+  done:  {box:'rgba(52,211,153,.13)',stroke:'#34d399',t1:'#d1fae5',t2:'#86efac'},
+  working:{box:'rgba(96,165,250,.13)',stroke:'#60a5fa',t1:'#dbeafe',t2:'#93c5fd'},
+  error: {box:'rgba(248,113,113,.14)',stroke:'#f87171',t1:'#fee2e2',t2:'#fca5a5'},
+  waiting:{box:'rgba(100,116,139,.07)',stroke:'#475569',t1:'#94a3b8',t2:'#64748b'},
+  hidden:{box:'none',stroke:'none',t1:'none',t2:'none'},
+};
+function apply(){
+  /* nodes */
+  EP.forEach(e=>{
+    const g=document.getElementById('n-'+e.id), s=stOf(e);
+    g.setAttribute('class','node st-'+s+(s==='hidden'?' off':''));
+    const st=STYLE[s], box=g.querySelector('.box');
+    box.setAttribute('fill',st.box); box.setAttribute('stroke',st.stroke);
+    if(s==='waiting')box.setAttribute('stroke-dasharray','5 4');else box.removeAttribute('stroke-dasharray');
+    const c=[['t1',st.t1],['t2',st.t2],['t3',s==='hidden'?'none':'#5b6472']];
+    c.forEach(([cls,fill])=>g.querySelector('.'+cls).setAttribute('fill',fill));
+  });
+  /* edges + labels */
+  svg.querySelectorAll('path.edge, text.elabel').forEach(p=>{
+    const vis=Math.min(tick,TICKS-1)>=+p.dataset.min;
+    p.classList.toggle('off',!vis);
+    if(p.classList.contains('elabel'))p.classList.add('hl'); /* labels re-highlighted below */
+  });
+  highlight();
+  /* lamps + strip + stats */
+  LANES.forEach(l=>{
+    const lamp=document.getElementById('lamp-'+l.id);
+    const s=l.lamps[Math.min(tick,TICKS-1)];
+    lamp.setAttribute('fill',{done:'#34d399',working:'#60a5fa',idle:'#475569',error:'#f87171'}[s]||'#475569');
+    if(s==='working')lamp.setAttribute('class','lamp blink');else lamp.setAttribute('class','lamp');
+  });
+  renderStrip();
+  const snap=SNAP[Math.min(tick,TICKS-1)];
+  document.getElementById('stat').innerHTML = tick>=TICKS-1
+    ? '观察完成 · <b>done</b> · '+snap.note
+    : '同步 #'+syncN+' · '+snap.note;
+}
+
+/* 聚焦：点击节点只保留邻域 */
+function highlight(sel){
+  svg.classList.toggle('focus',!!sel);
+  svg.querySelectorAll('.hl').forEach(n=>n.classList.remove('hl'));
+  if(!sel)return;
+  document.getElementById('n-'+sel).classList.add('hl');
+  svg.querySelectorAll('path.edge').forEach(p=>{
+    const hit=p.dataset.f===sel||p.dataset.t===sel;
+    if(hit&&!p.classList.contains('off')){
+      p.classList.add('hl');
+      const o=p.dataset.f===sel?p.dataset.t:p.dataset.f;
+      document.getElementById('n-'+o)?.classList.add('hl');
+    }
+  });
+  svg.querySelectorAll('text.elabel').forEach(t=>{
+    if((t.dataset.f===sel||t.dataset.t===sel)&&!t.classList.contains('off'))t.classList.add('hl');
+  });
+}
+function select(id){
+  highlight(id);
+  const e=ep(id), l=LANES.find(x=>x.id===e.lane), s=stOf(e);
+  const sn={done:'✅ 完成',working:'🔵 进行中',error:'🔴 失败',waiting:'⏸ 等待/挂起'}[s]||s;
+  document.getElementById('dBody').innerHTML=
+   `<h3>${e.lines[0]} · ${e.lines[1]}</h3>
+    <div class="sub">${l.name} · col ${e.col} · ${COLS[e.col]}</div>
+    <div class="kv"><b>状态</b><span>${sn}</span></div>
+    <div class="kv"><b>开销</b><span class="mono">${e.meta}</span></div>
+    <div class="evbox mono">${e.ev}</div>
+    <div class="kv"><b>关键事实</b></div>
+    <ul>${e.facts.map(f=>`<li>${f}</li>`).join('')}</ul>
+    <div class="kv" style="margin-top:12px"><b>溯源</b><span class="muted">episode 由规则粗切 + LLM 聚合生成，点击图例可回看压缩规则</span></div>`;
+  document.getElementById('drawer').classList.add('open');
+}
+function deselect(){highlight(null);document.getElementById('drawer').classList.remove('open');}
+document.getElementById('dClose').onclick=deselect;
+
+/* agent 树横条 */
+function renderStrip(){
+  const s=LANES.map(l=>{
+    const st=l.lamps[Math.min(tick,TICKS-1)];
+    const txt={done:'完成',working:'工作ing',idle:'idle',error:'失败'}[st];
+    return `<span class="chip"><span class="dot ${st}"></span>${l.name}<span class="muted mono" style="font-size:10px">${txt}</span></span>`;
+  }).join('<span class="rel" style="color:#3b4252">─</span>');
+  document.getElementById('strip').innerHTML=
+   `<span class="chip root"><span class="dot ${LANES[1].lamps[Math.min(tick,3)]}"></span><b>观察目标</b>&nbsp;session ${document.getElementById('sid').value.slice(0,8)}…</span>
+    <span class="rel" style="color:#3b4252">├</span>${s.replace('<span class="chip"><span class="dot working"></span>主 agent','<span class="chip root"><span class="dot working"></span>主 agent')}
+    <span class="muted" style="margin-left:auto;font-size:11px" class="mono">episodes ${SNAP[Math.min(tick,3)].ev} · tokens ${SNAP[Math.min(tick,3)].tok} · 同步 #${syncN}</span>`;
+}
+
+/* ───────────────────────── 交互 ───────────────────────── */
+const PIPE=['定位 session 文件','解析 JSONL 事件流','拼接 agent 树（Task + Herdr 派生）','episode 规则粗切','LLM 压缩 → schema','渲染流程图'];
+function runPipe(cb){
+  const ov=document.getElementById('pipe');ov.classList.remove('hidden');
+  document.getElementById('pipeSid').textContent='· '+(document.getElementById('sid').value||'—').slice(0,14)+'…';
+  const box=document.getElementById('pipeSteps');
+  box.innerHTML=PIPE.map((s,i)=>`<div class="pstep" id="ps${i}"><span class="mark">○</span>${s}</div>`).join('');
+  let i=0;
+  const iv=setInterval(()=>{
+    if(i>0){const pr=document.getElementById('ps'+(i-1));pr.className='pstep ok';pr.querySelector('.mark').textContent='✓';}
+    if(i>=PIPE.length){clearInterval(iv);setTimeout(()=>{ov.classList.add('hidden');cb&&cb();},260);return;}
+    document.getElementById('ps'+i).className='pstep run';i++;
+  },300);
+}
+function start(){
+  tick=0;syncN=0;deselect();
+  runPipe(()=>apply());
+}
+function sync(){
+  if(tick>=TICKS-1)return;
+  tick++;syncN++;
+  document.getElementById('lastSync')&&0;
+  apply();
+  if(tick>=TICKS-1)document.getElementById('auto').checked=false;
+}
+document.getElementById('btnStart').onclick=start;
+document.getElementById('btnSync').onclick=sync;
+document.getElementById('sid').addEventListener('keydown',e=>{if(e.key==='Enter')start();});
+let autoIv=null;
+document.getElementById('auto').addEventListener('change',e=>{
+  clearInterval(autoIv);
+  if(e.checked)autoIv=setInterval(()=>{ if(tick<TICKS-1)sync(); else {e.target.checked=false;clearInterval(autoIv);} },4000);
+  else clearInterval(autoIv);
+});
+
+build();
+start(); /* 首次进入自动演示一次 */
+</script>
+</body>
+</html>
