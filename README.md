@@ -55,7 +55,11 @@ node observe.mjs <id> [<id>…] \
 Observer（observe.mjs）  per-card born / states[] 历史 → 任意历史时刻回放
    ▼
 web/index.html    五列地图（目标｜子目标｜方案/风险｜验证｜结论/缺口）+ SVG 动词边
-                  + 署名条 + live 卡 + 历史滑杆 + 卡片抽屉
+                  分层披露：卡=类型+状态+标题(clamp2)+核心事实(clamp2)+署名摘要+详情，
+                  全文/步骤/关系面板进 480px 抽屉；zone>3 卡自动折叠成
+                  「其余 N 项·M 项未解决」入口（可展开）；边三级显隐（默认主线+≤6 个
+                  未解决标签，选中/hover 显全部直接关系）；live 三格 clamp2 可点开；
+                  参与者摘要+可搜索面板；历史默认收起；列宽/卡高实测，无列内滚动
 ```
 
 多 agent 收束：herdr 并行会话与原生 Task 子 agent 都挂在主线的派发点下，
