@@ -7,7 +7,7 @@
 <style>
   :root{
     --bg:#0e1014; --panel:#161a22; --panel2:#1c212c; --line:#282e3b;
-    --tx:#e7eaf0; --muted:#98a1b0; --dim:#626b7a;
+    --tx:#e7eaf0; --muted:#98a1b0; --dim:#8993a3;
     --blue:#60a5fa; --green:#34d399; --amber:#fbbf24; --red:#f87171; --teal:#2dd4bf; --violet:#a78bfa;
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -55,7 +55,7 @@
   .live .lcell .k{font-size:10.5px;color:var(--dim);letter-spacing:1px;margin-bottom:3px}
   .live .lcell .v{font-size:12.5px;color:#dbe3ef;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
   .live .lcell.open .v{-webkit-line-clamp:unset;display:block}
-  .live .lcell .hint{font-size:9.5px;color:#3d4a63;margin-top:2px}
+  .live .lcell .hint{font-size:9.5px;color:var(--dim);margin-top:2px}
   .live .lcell.open .hint{display:none}
 
   /* ── 参与者：摘要一行 + 面板，不铺满横带 ── */
@@ -82,20 +82,19 @@
   svg.edges{position:absolute;inset:0;z-index:1;pointer-events:none}
   svg.edges text{font-size:10.5px;font-weight:600;paint-order:stroke;stroke:#0e1014;stroke-width:4px;display:none}
   svg.edges text.show{display:inline}
+  svg.edges path.ctx{opacity:.25}svg.edges path.main{opacity:.65}svg.edges path.hl{opacity:1}
   svg.edges path{transition:opacity .2s,stroke .2s}
 
   /* ── 卡片：四层结构，高度自适应，只有标题/摘要有意省略 ── */
-  .card{position:absolute;z-index:2;border-radius:11px;background:var(--panel);border:1px solid var(--line);padding:9px 12px 8px;cursor:pointer;transition:opacity .4s;display:grid;grid-template-rows:auto auto auto 1fr;gap:4px}
-  .card.off{opacity:0;pointer-events:none}
+  .card{position:absolute;z-index:2;border-radius:11px;background:var(--panel);border:1px solid var(--line);padding:10px 12px;cursor:pointer;transition:opacity .4s;display:grid;gap:4px}
   .card:hover{border-color:#465170}
-  .card:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
-  .card.sel{outline:2px solid var(--blue);outline-offset:1px}
+  .card:focus-visible,.card.sel{outline:2px solid var(--blue);outline-offset:2px}
   .clamp2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
   .card .meta{display:flex;align-items:center;gap:7px;min-width:0}
   .card .ctag{font-size:9.5px;letter-spacing:1px;padding:1px 7px;border-radius:4px;font-weight:700;background:#232a38;flex:none}
   .card .stbadge{font-size:9.5px;padding:1px 8px;border-radius:99px;font-weight:700;flex:none}
-  .card h4{font-size:13.5px;font-weight:650;line-height:1.32}
-  .card .fact{font-size:11.5px;color:var(--muted);line-height:1.45}
+  .card h4{font-size:14px;font-weight:650;line-height:20px}
+  .card .fact{font-size:13px;color:var(--muted);line-height:18px}
   .card ul.acc{margin:2px 0 0 16px;font-size:11.5px;color:#c3cbd8}
   .card .foot{display:flex;align-items:center;gap:8px;min-width:0;min-height:20px}
   .card .sig1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:var(--dim)}
@@ -103,9 +102,10 @@
   .card .more{font-size:10px;color:var(--dim);flex:none}
   .card .dtl{margin-left:auto;flex:none;border:none;background:none;color:var(--teal);font-size:10.5px;cursor:pointer;padding:2px 6px;border-radius:6px}
   .card .dtl:hover{background:#0f2725;color:#8ef0e2}
-  .card .st-doing{background:#1e3a5c;color:#93c5fd}.card .st-done{background:#14532d;color:#86efac}
-  .card .st-failed{background:#5c1d1d;color:#fca5a5}.card .st-partial{background:#574308;color:#fde68a}
-  .card .st-risk{background:#574308;color:#fde68a}.card .st-resolved{background:#14532d;color:#86efac}
+  .card .st-doing{background:#1e3a5c;color:#93c5fd}
+  .card .st-done,.card .st-resolved{background:#14532d;color:#86efac}
+  .card .st-failed{background:#5c1d1d;color:#fca5a5}
+  .card .st-partial,.card .st-risk{background:#574308;color:#fde68a}
   .card.goal{background:linear-gradient(160deg,#17233c,#131a2a);border-color:#3b5bdb88}
   .card.subgoal{border-color:#2c4a7c}
   .card.risk{border-color:#8a6420;background:#1d1a10}
@@ -119,17 +119,16 @@
   @keyframes flash{0%{box-shadow:0 0 0 3px #60a5fa88}100%{box-shadow:0 0 0 3px transparent}}
 
   /* ── 折叠入口：虚线 UI 容器，不是业务节点 ── */
-  .foldentry{position:absolute;z-index:2;border:1.5px dashed #33405a;border-radius:11px;background:rgba(22,26,34,.55);padding:10px 12px;cursor:pointer;color:var(--muted)}
+  .foldentry{position:absolute;z-index:2;border:1.5px dashed #33405a;border-radius:11px;background:rgba(22,26,34,.55);padding:10px 12px;cursor:pointer;color:var(--muted);text-align:left;font:inherit}
+  .foldentry>span{display:block}
   .foldentry:hover{border-color:#4a5b7d;background:#161c28}
   .foldentry .t1{font-size:12px;font-weight:600;color:#aab6c8}
   .foldentry .t1 b{color:var(--tx)}
-  .foldentry .t2{font-size:10.5px;color:var(--dim);margin-top:3px}
-  .foldentry .t2 .uns{color:var(--amber)}
+  .foldentry .t2{font-size:10.5px;color:var(--dim);margin-top:3px}.foldentry .uns{color:var(--amber)}
   .foldentry .go{margin-top:5px;font-size:10.5px;color:var(--teal)}
 
   /* ── 聚焦模式：选中/署名筛选时无关卡降透明，但保持可点击 ── */
   .focusmode .card:not(.hl){opacity:.3}
-  .focusmode .foldentry:not(.hl){opacity:.25}
   .focusmode svg.edges path:not(.hl){opacity:.05}
   .focusmode svg.edges text:not(.hl){opacity:0}
 
@@ -150,8 +149,8 @@
   #notebar b{color:var(--muted)}
 
   /* ── 抽屉：480px，标题固定，正文独立滚动，含关系面板 ── */
-  #drawer{position:fixed;right:0;top:0;bottom:0;width:480px;max-width:calc(100vw - 32px);background:var(--panel);border-left:1px solid var(--line);z-index:80;transform:translateX(103%);transition:transform .25s;display:flex;flex-direction:column}
-  #drawer.open{transform:none}
+  #drawer{position:fixed;right:0;top:0;bottom:0;width:480px;max-width:calc(100vw - 32px);background:var(--panel);border-left:1px solid var(--line);z-index:80;transform:translateX(103%);transition:transform .25s;display:flex;flex-direction:column;visibility:hidden}
+  #drawer.open{transform:none;visibility:visible}
   #drawer .dhead{padding:16px 20px 10px;border-bottom:1px solid var(--line);position:relative;flex:none}
   #drawer h3{font-size:15px;margin-bottom:2px;padding-right:28px;line-height:1.4}
   #drawer .sub{color:var(--muted);font-size:12px}
@@ -168,6 +167,7 @@
   #boot{position:fixed;inset:0;background:rgba(10,12,16,.82);backdrop-filter:blur(3px);z-index:90;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px}
   #boot .msg{font-size:15px;color:#c7d2fe}
   #boot .steps{font-size:12px;color:var(--dim)}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
@@ -201,9 +201,9 @@
 <div class="live" id="live">
   <div class="lhead"><span class="pulse"></span>当前进展</div>
   <div class="lbody">
-    <div class="lcell" data-c="lvNow"><div class="k">正在做</div><div class="v" id="lvNow">—</div><div class="hint">点击展开全文</div></div>
-    <div class="lcell" data-c="lvKnown"><div class="k">已证实</div><div class="v" id="lvKnown">—</div><div class="hint">点击展开全文</div></div>
-    <div class="lcell" data-c="lvNext"><div class="k" id="lvNextK">下一项验证</div><div class="v" id="lvNext">—</div><div class="hint">点击展开全文</div></div>
+    <div class="lcell"><div class="k">正在做</div><div class="v" id="lvNow">—</div><div class="hint">点击展开全文</div></div>
+    <div class="lcell"><div class="k">已证实</div><div class="v" id="lvKnown">—</div><div class="hint">点击展开全文</div></div>
+    <div class="lcell"><div class="k" id="lvNextK">下一项验证</div><div class="v" id="lvNext">—</div><div class="hint">点击展开全文</div></div>
   </div>
 </div>
 
@@ -242,7 +242,7 @@ let prevStates=new Map(), prevSyncN=-1, prevSid=null, rgOpen=new Set();
 let selectedId=null, drawerId=null, hoveredId=null, expandedZones=new Set();
 let pos={}, adj=null, lastW=0, rendering=false;
 const $=id=>document.getElementById(id);
-const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 async function refresh(){
   try{
@@ -257,7 +257,7 @@ async function refresh(){
   const switched=DATA.sessionId!==prevSid;
   if(switched){ // 切换观察者：重置视图态（数据不动，只重置显示）
     viewTick=DATA.syncN;follow=true;selAgent=null;prevStates=new Map();rgOpen=new Set();
-    selectedId=null;drawerId=null;expandedZones=new Set();closeDrawer();
+    selectedId=null;drawerId=null;hoveredId=null;expandedZones=new Set();closeDrawer();
     prevSid=DATA.sessionId;prevSyncN=-1;
   }
   $('boot').style.display=DATA.syncN===0?'flex':'none';
@@ -325,15 +325,17 @@ $('wrap').addEventListener('click',e=>{
 
 /* ═══════ 布局引擎：列宽/卡高实测，折叠只改显示 ═══════ */
 const visibleAt=(c,t)=>(c.born??0)<=t;
-function stateAt(c,t){const a=c.states||[];let s=a.length?a[0].s:'doing';for(const x of a)if(x.at<=t)s=x.s;return s;}
-const stTxt={doing:'进行中',done:'已证实',failed:'失败',partial:'部分证实',risk:'待确认',resolved:'已解决'};
+/* 历史取值统一：只取时点以前（含）的最后一条，绝不读未来（B5） */
+const atOrBefore=(xs,t)=>(xs||[]).reduce((a,x)=>x.at<=t&&(!a||x.at>=a.at)?x:a,null);
+function stateAt(c,t){return atOrBefore(c.states,t)?.s||'unknown';}
+const stTxt={doing:'进行中',done:'已证实',failed:'失败',partial:'部分证实',risk:'待确认',resolved:'已解决',unknown:'状态未知'};
 const tagColor={goal:'#9fc1f7',subgoal:'#9fc1f7',change:'#b7c0cf',risk:'#fde68a',verify:'#7ee6d8',concl:'#86efac',gap:'#9aa3b2'};
 const colIdx=t=>({goal:0,subgoal:1,change:2,risk:2,group:2,verify:3,concl:4,gap:4}[t]??2);
 const PAD=24,GAP=28;
 function geom(){
-  const W=$('wrap').clientWidth-48; // wrap 内左右各留 24
+  const W=$('wrap').clientWidth-2*PAD;
   const colW=(W-4*GAP)/5;
-  return {colW,x:i=>24+i*(colW+GAP)};
+  return {colW,x:i=>PAD+i*(colW+GAP)};
 }
 /* 核心事实挑选：未解决问题优先，其次最新结果；无则退回 sub */
 const UNRES=/未|失败|缺口|待|风险|阻塞|冲突|仅|无法|错/;
@@ -372,6 +374,14 @@ function plan(t){
       else groups[c.zone].concl.push(c);
     }else others.push(c);
   }
+  /* 未匹配归属的卡也必须走同一个折叠器，明示「归属待确认」，不猜归属（B2.1） */
+  if(others.length){
+    let key='归属待确认';while(zones.includes(key))key+='·';
+    zones.push(key);
+    groups[key]={sub:null,mid:[],verify:[],concl:[],folded:[]};
+    for(const c of others)
+      groups[key][['change','risk','group'].includes(c.type)?'mid':c.type==='verify'?'verify':'concl'].push(c);
+  }
   /* 每个 zone：概览最多 3 张具体卡 + 1 个折叠入口（P0-2/P0-3） */
   for(const z of zones){
     const g=groups[z];
@@ -385,8 +395,7 @@ function plan(t){
     g.verify=g.verify.filter(c=>keep.has(c.id));
     g.concl=g.concl.filter(c=>keep.has(c.id));
   }
-  const gaps=all.filter(c=>c.type==='gap');
-  return {all,zones,groups,others,gaps};
+  return {all,zones,groups};
 }
 function render(animate){
   if(rendering)return;rendering=true;
@@ -399,7 +408,11 @@ function renderInner(animate){
   const t=viewTick;
   const wrap=$('wrap');
   const G=geom();lastW=wrap.clientWidth;
-  const {all,zones,groups,others,gaps}=plan(t);
+  const {all,zones,groups}=plan(t);
+  /* 本轮实际显示集合：只挂载/测量会出现的卡（S2） */
+  const shown=[...(D.goal&&visibleAt(D.goal,t)?[D.goal]:[]),
+    ...zones.flatMap(z=>[groups[z].sub,...groups[z].mid,...groups[z].verify,...groups[z].concl].filter(Boolean))];
+  hoveredId=null;
   /* 邻接表（选中态关系阅读用） */
   adj=new Map();
   for(const e of D.edges){
@@ -421,55 +434,39 @@ function renderInner(animate){
     fillCard(d,c,t);
     wrap.appendChild(d);return d;
   };
-  for(const c of all)mkCard(c);
-  const g=geom();
+  for(const c of shown)mkCard(c);
   const hOf=id=>document.getElementById('c-'+id)?.offsetHeight||60;
   /* Pass2：堆叠 */
   let y=76;const zoneRects=[];
-  const stack=(list,colI,startY)=>{let cy=startY;for(const c of list){pos[c.id]={x:g.x(colI),y:cy,w:g.colW,h:hOf(c.id)};cy+=pos[c.id].h+12;}return cy;};
+  const stack=(list,colI,startY)=>{let cy=startY;for(const c of list){pos[c.id]={x:G.x(colI),y:cy,w:G.colW,h:hOf(c.id)};cy+=pos[c.id].h+12;}return cy;};
   for(const z of zones){
     const grp=groups[z];const zoneTop=y;
-    if(grp.sub){pos[grp.sub.id]={x:g.x(1),y:zoneTop+26,w:g.colW,h:hOf(grp.sub.id)};}
+    if(grp.sub){pos[grp.sub.id]={x:G.x(1),y:zoneTop+26,w:G.colW,h:hOf(grp.sub.id)};}
     let mB=stack(grp.mid,2,zoneTop+26), vB=stack(grp.verify,3,zoneTop+26), cB=stack(grp.concl,4,zoneTop+26);
     let sB=grp.sub?pos[grp.sub.id].y+pos[grp.sub.id].h+12:zoneTop+26;
     /* 折叠入口挂在「方案」列底部 */
     if(grp.folded&&grp.folded.length){
       const fe=mkFold(z,grp,t);
-      fe.style.cssText+=`left:${g.x(2)}px;top:0;width:${g.colW}px;visibility:hidden`;
+      fe.style.cssText+=`left:${G.x(2)}px;top:0;width:${G.colW}px;visibility:hidden`;
       wrap.appendChild(fe);
       const fh=fe.offsetHeight;
       fe.style.top=(mB+2)+'px';fe.style.visibility='';
-      pos['__fold_'+z]={x:g.x(2),y:mB+2,w:g.colW,h:fh};
       mB=mB+fh+12;
     }
     const bottom=Math.max(sB,mB,vB,cB);
     zoneRects.push({z,top:zoneTop,h:Math.max(bottom-zoneTop+8,100)});
     y=zoneTop+Math.max(bottom-zoneTop,96)+30;
   }
-  if(others.length||gaps.length){
-    const zoneTop=y;
-    const oMid=others.filter(c=>['change','risk','group'].includes(c.type));
-    const oVer=others.filter(c=>c.type==='verify');
-    const oCon=others.filter(c=>c.type==='concl');
-    let mB=stack(oMid,2,zoneTop+26),vB=stack(oVer,3,zoneTop+26),cB=stack(oCon,4,zoneTop+26);
-    let gy=zoneTop+26;
-    for(const c of gaps){pos[c.id]={x:g.x(4),y:Math.max(cB,gy),w:g.colW,h:hOf(c.id)};gy=pos[c.id].y+pos[c.id].h+12;cB=Math.max(cB,gy);}
-    const bottom=Math.max(mB,vB,cB,gy);
-    zoneRects.push({z:'其它',top:zoneTop,h:Math.max(bottom-zoneTop+8,80)});
-    y=zoneTop+Math.max(bottom-zoneTop,60)+30;
-  }
   if(D.goal&&visibleAt(D.goal,t)){
     const gh=hOf('GOAL');
-    pos.GOAL={x:g.x(0),y:76+Math.max((y-76-gh)/2,0),w:g.colW,h:gh};
+    pos.GOAL={x:G.x(0),y:76+Math.max((y-76-gh)/2,0),w:G.colW,h:gh};
   }
   /* 应用最终位置 */
-  for(const c of all){
+  for(const c of shown){
     const d=$('c-'+c.id),p=pos[c.id];if(!d||!p)continue;
     d.style.top=p.y+'px';d.style.visibility='';
-    const vis=visibleAt(c,t);
-    d.classList.toggle('off',!vis);
-    if(animate&&prevStates.has(c.id)&&prevStates.get(c.id)!==stateAt(c,t)&&vis)d.classList.add('flash');
-    if(vis)prevStates.set(c.id,stateAt(c,t));
+    if(animate&&prevStates.has(c.id)&&prevStates.get(c.id)!==stateAt(c,t))d.classList.add('flash');
+    prevStates.set(c.id,stateAt(c,t));
   }
   /* group 过程展开体（rgOpen） */
   for(const c of D.cards.filter(x=>x.type==='group'&&rgOpen.has(x.id)&&pos[x.id]&&visibleAt(x,t))){
@@ -484,9 +481,9 @@ function renderInner(animate){
   /* zone 底色框 + 展开/收起按钮 */
   for(const zr of zoneRects){
     const d=document.createElement('div');d.className='zone';
-    d.style.cssText+=`top:${zr.top}px;height:${zr.h}px`;
-    const expandable=zones.includes(zr.z)&&(groups[zr.z].folded||[]).length>0;
-    d.innerHTML=`<span class="zh">子目标 · ${esc(zr.z)}${expandable?` <button data-xz="${esc(zr.z)}">收起 ↑</button>`:''}</span>`;
+    d.style.cssText=`left:${G.x(1)-12}px;right:12px;top:${zr.top}px;height:${zr.h}px`;
+    const expandable=expandedZones.has(zr.z);
+    d.innerHTML=`<span class="zh">${groups[zr.z]&&groups[zr.z].sub?`子目标 · ${esc(zr.z)}`:esc(zr.z)}${expandable?` <button data-xz="${esc(zr.z)}">收起 ↑</button>`:''}</span>`;
     wrap.appendChild(d);
   }
   wrap.querySelectorAll('[data-xz]').forEach(b=>b.onclick=e=>{
@@ -496,7 +493,7 @@ function renderInner(animate){
   drawEdges(t);
   applyEmphasis();
   renderSig(t);renderLive(t);renderHist(t);renderNote();
-  if(drawerId&&selectedId==null){/* 抽屉保持 */}
+  if(drawerId){const c=all.find(q=>q.id===drawerId);c?renderDrawer(c):closeDrawer();}
 }
 function fillCard(d,c,t){
   const st=stateAt(c,t);
@@ -509,18 +506,17 @@ function fillCard(d,c,t){
   let html=`<div class="meta"><span class="ctag" style="color:${tagColor[c.type]}">${ctag}</span>${stTxt[st]?`<span class="stbadge st-${st}">${stTxt[st]}</span>`:''}</div>`;
   html+=`<h4 class="clamp2">${esc(c.title)}</h4>`;
   if(c.id==='GOAL'&&c.acc&&c.acc.length){
-    html+=`<ul class="acc">${c.acc.slice(0,3).map(a=>`<li class="clamp2" style="display:-webkit-box">${esc(a)}</li>`).join('')}${c.acc.length>3?`<li style="color:var(--dim);list-style:none;margin-left:-14px;font-size:10.5px">等 ${c.acc.length} 条验收条件</li>`:''}</ul>`;
+    html+=`<ul class="acc">${c.acc.slice(0,3).map(a=>`<li class="clamp2">${esc(a)}</li>`).join('')}${c.acc.length>3?`<li style="color:var(--dim);list-style:none;margin-left:-14px;font-size:10.5px">等 ${c.acc.length} 条验收条件</li>`:''}</ul>`;
   }else if(fact){
     html+=`<div class="fact clamp2" title="${esc(fact)}">${esc(fact)}</div>`;
   }else if(c.type==='group'){
     html+=`<div class="fact">${(c.steps||[]).length} 步过程</div>`;
   }
-  html+=`<div class="foot"><span class="sig1">${sig1}</span>${more}<button class="dtl" data-d="${esc(c.id)}">详情${nD?` · ${nD} 条`:''}</button></div>`;
+  html+=`<div class="foot"><span class="sig1">${sig1}</span>${more}<button class="dtl">详情${nD?` · ${nD} 条`:''}</button></div>`;
   d.innerHTML=html;
   if(sigs.length>1)d.querySelector('.more').title=sigs.map(g=>`${g.verb}:${g.agent}`).join('；');
   d.onclick=e=>{
     if(e.target.closest('.dtl')){openDrawer(c);e.stopPropagation();return;}
-    if(e.target.dataset.agent!==undefined&&e.target.dataset.agent){selAgent=e.target.dataset.agent;render(false);e.stopPropagation();return;}
     if(c.type==='group'&&e.target.closest('.fact')&&(c.steps||[]).length){rgOpen.has(c.id)?rgOpen.delete(c.id):rgOpen.add(c.id);render(false);e.stopPropagation();return;}
     if(selectedId===c.id){openDrawer(c);}
     else{selectedId=c.id;applyEmphasis();}
@@ -529,19 +525,20 @@ function fillCard(d,c,t){
   d.onmouseenter=()=>{hoveredId=c.id;applyEmphasis();};
   d.onmouseleave=()=>{if(hoveredId===c.id){hoveredId=null;applyEmphasis();}};
   d.onkeydown=e=>{
+    if(e.target!==d)return;
     if(e.key==='Enter'){e.preventDefault();if(selectedId===c.id)openDrawer(c);else{selectedId=c.id;applyEmphasis();}}
   };
 }
 function mkFold(z,grp,t){
-  const d=document.createElement('div');d.className='foldentry';
+  const d=document.createElement('button');d.type='button';d.className='foldentry';
   const n=grp.folded.length;
   const uns=grp.folded.filter(c=>cardPrio(c,stateAt(c,t))===0).length;
   let relN=0;const D=DATA;
   const hid=new Set(grp.folded.map(c=>c.id));
   for(const e of D.edges){if((e.born??0)>t)continue;if(hid.has(e.f)||hid.has(e.t))relN++;}
-  d.innerHTML=`<div class="t1">其余 <b>${n}</b> 项记录${uns?` · <span class="uns">${uns} 项未解决</span>`:''}</div>
-    <div class="t2">含 ${relN} 条关系 · 全文在详情中可查</div>
-    <div class="go">展开本分支 →</div>`;
+  d.innerHTML=`<span class="t1">其余 <b>${n}</b> 项记录${uns?` · <span class="uns">${uns} 项未解决</span>`:''}</span>
+    <span class="t2">含 ${relN} 条关系 · 全文在详情中可查</span>
+    <span class="go">展开本分支 →</span>`;
   d.onclick=e=>{e.stopPropagation();expandedZones.add(z);selectedId=null;render(false);};
   return d;
 }
@@ -549,7 +546,7 @@ function mkFold(z,grp,t){
 /* ═══════ 边：三级显示，默认只给未解决障碍上标签（P0-5） ═══════ */
 function drawEdges(t){
   const esvg=$('edges');esvg.innerHTML='';
-  const D=DATA;
+  const D=DATA;const cards=[D.goal,...D.cards];
   esvg.setAttribute('width',$('wrap').clientWidth);esvg.setAttribute('height',$('wrap').style.height);
   const anchor=(c,side)=>{const p=pos[c.id];if(!p)return null;
     const m={l:[p.x,p.y+p.h/2],r:[p.x+p.w,p.y+p.h/2],t:[p.x+p.w/2,p.y],b:[p.x+p.w/2,p.y+p.h]};return m[side];};
@@ -558,68 +555,63 @@ function drawEdges(t){
   for(const e of D.edges){
     if((e.born??0)>t)continue;
     if(!pos[e.f]||!pos[e.t])continue; // 折叠隐藏的卡不画线，关系数在折叠入口里如实说明
-    const f=[D.goal,...D.cards].find(c=>c.id===e.f),tt=[D.goal,...D.cards].find(c=>c.id===e.t);
+    const f=cards.find(c=>c.id===e.f),tt=cards.find(c=>c.id===e.t);
     if(!f||!tt)continue;
     const hor=colIdx(f.type)!==colIdx(tt.type);
     let fa,ta;
     if(hor){fa=pos[e.f].x<pos[e.t].x?'r':'l';ta=pos[e.t].x<pos[e.f].x?'l':'r';}
     else{fa=pos[e.f].y<pos[e.t].y?'b':'t';ta=pos[e.t].y<pos[e.f].y?'t':'b';}
     const a=anchor(f,fa),b2=anchor(tt,ta);if(!a||!b2)continue;
-    const hz=hor;
-    const c1=hz?[a[0]+(b2[0]>a[0]?40:-40),a[1]]:[a[0],a[1]+(b2[1]>a[1]?40:-40)];
-    const c2=hz?[b2[0]-(b2[0]>a[0]?40:-40),b2[1]]:[b2[0],b2[1]-(b2[1]>a[1]?40:-40)];
+    const c1=hor?[a[0]+(b2[0]>a[0]?40:-40),a[1]]:[a[0],a[1]+(b2[1]>a[1]?40:-40)];
+    const c2=hor?[b2[0]-(b2[0]>a[0]?40:-40),b2[1]]:[b2[0],b2[1]-(b2[1]>a[1]?40:-40)];
     const kind=(e.v==='妨碍'||e.v==='留下缺口')?'risk':((e.v==='解决'||e.v==='支持')?'solve':'flow');
     const p=document.createElementNS('http://www.w3.org/2000/svg','path');
     p.setAttribute('d',`M ${a[0]} ${a[1]} C ${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${b2[0]} ${b2[1]}`);
     p.setAttribute('fill','none');
-    p.dataset.f=e.f;p.dataset.t=e.t;p.dataset.k=kind;
-    /* 三级：ctx（默认淡化）/ main（未解决障碍默认可见）/ hl（选中/hover 高亮时加） */
-    p.classList.add(kind==='risk'?'main':'ctx');
+    p.dataset.f=e.f;p.dataset.t=e.t;
+    /* 默认等级建边时算一次：未解决障碍才是主线，已解决风险降回背景（B3） */
+    const obstacle=e.v==='妨碍'?f:e.v==='留下缺口'?tt:null;
+    const main=!!obstacle&&!['done','resolved'].includes(stateAt(obstacle,t));
+    p.classList.add(main?'main':'ctx');
     p.setAttribute('stroke',verbColor[e.v]||'#5f6b7e');
     p.setAttribute('stroke-width',kind==='risk'?'1.7':'1.2');
     if(kind==='risk')p.setAttribute('stroke-dasharray','5 4');
     esvg.appendChild(p);
     /* 标签纪律：每条边都有 text 节点；默认只放行未解决障碍（前 6 条），其余选中/hover 才显示 */
     const tx=document.createElementNS('http://www.w3.org/2000/svg','text');
-    tx.setAttribute('x',(a[0]+b2[0])/2+(hz?0:16));tx.setAttribute('y',(a[1]+b2[1])/2+(hz?-8:0));
+    tx.setAttribute('x',(a[0]+b2[0])/2+(hor?0:16));tx.setAttribute('y',(a[1]+b2[1])/2+(hor?-8:0));
     tx.setAttribute('text-anchor','middle');tx.setAttribute('fill',verbColor[e.v]||'#5f6b7e');
     tx.textContent=e.v;tx.dataset.f=e.f;tx.dataset.t=e.t;
-    if(kind==='risk'&&mainLabels<6)tx.classList.add('show0');
+    if(main&&mainLabels<6)tx.classList.add('show0');
     esvg.appendChild(tx);
-    if(kind==='risk'&&mainLabels<6)mainLabels++;
+    if(main&&mainLabels<6)mainLabels++;
   }
 }
-/* 选中 / hover / 署名筛选：一个强调通道（P0-5 + P1-1） */
+/* 选中 / hover / 署名筛选：单趟 toggle，边只认选中卡本人的直接关系（B3） */
 function applyEmphasis(){
   const esvg=$('edges');
   const focusId=hoveredId||selectedId;
   const focusing=!!(focusId||selAgent);
-  document.querySelectorAll('#wrap .card').forEach(n=>n.classList.remove('hl','sel'));
-  document.querySelectorAll('#wrap .foldentry').forEach(n=>n.classList.remove('hl'));
-  esvg.querySelectorAll('path,text').forEach(n=>n.classList.remove('hl'));
-  esvg.querySelectorAll('path').forEach(p=>{p.classList.toggle('main',p.dataset.k==='risk');p.classList.toggle('ctx',p.dataset.k!=='risk');});
-  esvg.querySelectorAll('text').forEach(tx=>tx.classList.toggle('show',false));
-  $('wrap').classList.toggle('focusmode',focusing);
-  if(selectedId){const n=$('c-'+selectedId);if(n)n.classList.add('sel');}
-  if(!focusing){ /* 默认态：恢复未解决障碍标签（show0） */
-    esvg.querySelectorAll('text.show0').forEach(tx=>tx.classList.add('show'));
-    return;
-  }
   let hlIds=new Set();
-  if(focusId){
-    hlIds.add(focusId);(adj?.get(focusId)||[]).forEach(x=>hlIds.add(x));
-  }else{
+  if(focusId){hlIds.add(focusId);(adj?.get(focusId)||[]).forEach(x=>hlIds.add(x));}
+  else if(selAgent){
     for(const c of [DATA.goal,...DATA.cards])if((c.sig||[]).some(g=>g.agent===selAgent))hlIds.add(c.id);
   }
-  hlIds.forEach(id=>{const n=$('c-'+id);if(n)n.classList.add('hl');});
-  document.querySelectorAll('#wrap .foldentry').forEach(n=>n.classList.add('hl'));
-  esvg.querySelectorAll('path,text').forEach(p=>{
-    if(hlIds.has(p.dataset.f)||hlIds.has(p.dataset.t)){p.classList.add('hl');
-      if(p.tagName==='text')p.classList.add('show');}
+  const edgeHit=p=>focusId
+    ? p.dataset.f===focusId||p.dataset.t===focusId
+    : hlIds.has(p.dataset.f)||hlIds.has(p.dataset.t);
+  document.querySelectorAll('#wrap .card').forEach(n=>{
+    const id=n.id.slice(2);
+    n.classList.toggle('hl',focusing&&hlIds.has(id));
+    n.classList.toggle('sel',selectedId===id);
   });
+  esvg.querySelectorAll('path,text').forEach(p=>{
+    const hit=focusing&&edgeHit(p);
+    p.classList.toggle('hl',hit);
+    if(p.tagName==='text')p.classList.toggle('show',focusing?hit:p.classList.contains('show0'));
+  });
+  $('wrap').classList.toggle('focusmode',focusing);
 }
-function drawDefaultLabels(){}
-function esvgLabels(on){}
 
 /* ═══════ 参与者：摘要 + 面板（P0-6） ═══════ */
 function renderSig(t){
@@ -636,9 +628,11 @@ function renderSig(t){
   $('pcWork').textContent=working?`工作中 ${working}`:'';
   $('sigchips').innerHTML=entries.slice(0,3).map(([k,v])=>
     `<span class="sigchip${selAgent===k?' on':''}" data-k="${esc(k)}"><span class="cdot" style="background:${v.color}"></span>${esc(k)}<span class="n">${v.count}</span></span>`).join('');
-  $('sigchips').querySelectorAll('.sigchip').forEach(ch=>ch.onclick=e=>{e.stopPropagation();selAgent=selAgent===ch.dataset.k?null:ch.dataset.k;applyEmphasis();});
+  $('sigchips').querySelectorAll('.sigchip').forEach(ch=>ch.onclick=e=>{e.stopPropagation();toggleAgent(ch.dataset.k);});
   renderPcPanel(entries);
 }
+/* chip 与面板两个入口统一反馈（S4） */
+function toggleAgent(key){selAgent=selAgent===key?null:key;applyEmphasis();renderSig(viewTick);}
 function renderPcPanel(entries){
   const list=()=>entries.filter(([k])=>!$('pcSearch').value||k.toLowerCase().includes($('pcSearch').value.toLowerCase()));
   const draw=()=>{
@@ -646,7 +640,7 @@ function renderPcPanel(entries){
       `<div class="pcrow${selAgent===k?' on':''}" data-k="${esc(k)}"><span class="cdot dot" style="background:${v.color}"></span>${esc(k)}<span class="n">${v.count} 卡</span></div>`).join('')
       ||'<div style="padding:8px;color:var(--dim);font-size:12px">无匹配</div>';
     $('pcList').querySelectorAll('.pcrow').forEach(r=>r.onclick=()=>{
-      selAgent=selAgent===r.dataset.k?null:r.dataset.k;$('pcPanel').classList.remove('open');applyEmphasis();renderSig(viewTick);
+      toggleAgent(r.dataset.k);$('pcPanel').classList.remove('open');
     });
   };
   $('pcAll').onclick=e=>{e.stopPropagation();$('pcPanel').classList.toggle('open');draw();};
@@ -655,13 +649,12 @@ function renderPcPanel(entries){
 
 /* ═══════ 当前进展 / 历史 / 备注 ═══════ */
 function renderLive(t){
-  const D=DATA;let e=D.live[0]||{};
-  for(const x of D.live)if(x.at<=t)e=x;
+  const D=DATA;const e=atOrBefore(D.live,t)||{};
   $('lvNow').textContent=e.now||'—';
   $('lvKnown').textContent=e.known||'—';
   $('lvNextK').textContent=e.nextK||'下一项验证';
   $('lvNext').textContent=e.next||'—';
-  const st=(D.stamps||[]).find(s=>s.at===t)||D.stamps[D.stamps.length-1]||{};
+  const st=atOrBefore(D.stamps,t)||{};
   $('stData').textContent=st.data||'—';$('stSum').textContent=st.summary||'—';
 }
 function renderHist(t){
@@ -681,16 +674,23 @@ function renderNote(){
 
 /* ═══════ 抽屉：全文 + 关系面板（P0-1 / P1-1） ═══════ */
 function openDrawer(c){
-  drawerId=c.id;if(selectedId!==c.id){selectedId=c.id;}
-  const t=viewTick,st=stateAt(c,t);
+  drawerId=c.id;if(selectedId!==c.id)selectedId=c.id;
+  renderDrawer(c);
+  $('drawer').classList.add('open');
+  $('dClose').focus();
+  applyEmphasis();
+}
+function renderDrawer(c){
+  const t=viewTick,st=stateAt(c,t),st0=$('dBody').scrollTop;
   $('dHead').innerHTML=`<h3>${esc(c.title)}</h3><div class="sub">${esc(c.zone||'')} · ${esc(c.type)} · 状态：${stTxt[st]||st}</div>`;
+  const cards=[DATA.goal,...DATA.cards];
   const rels=[];
   for(const e of DATA.edges){
     if((e.born??0)>t)continue;
     if(e.f===c.id)rels.push({dir:'→',v:e.v,other:e.t});
     else if(e.t===c.id)rels.push({dir:'←',v:e.v,other:e.f});
   }
-  const nameOf=id=>{const x=[DATA.goal,...DATA.cards].find(q=>q.id===id);return x?x.title:id;};
+  const nameOf=id=>{const x=cards.find(q=>q.id===id);return x?x.title:id;};
   $('dBody').innerHTML=`
     ${(c.sig&&c.sig.length)?`<div class="kv"><b>署名</b><span>${c.sig.map(g=>`${esc(g.verb)}：${esc(g.agent)}`).join('；')}</span></div>`:''}
     ${rels.length?`<div class="kv" style="margin-top:12px"><b>关系（${rels.length}）</b></div><div style="margin-top:4px">${rels.map((r,i)=>`<div class="relrow" data-i="${i}"><span class="v" style="color:${r.dir==='→'?'#7ea6d9':'#a78bfa'}">${r.dir} ${esc(r.v)}</span><span>${esc(nameOf(r.other))}</span></div>`).join('')}</div>`:''}
@@ -701,11 +701,10 @@ function openDrawer(c){
     <div class="evbox mono">${esc(c.ev||'—')}</div>`;
   $('dBody').querySelectorAll('.relrow').forEach(r=>r.onclick=()=>{
     const target=rels[+r.dataset.i].other;
-    const tc=[DATA.goal,...DATA.cards].find(q=>q.id===target);
+    const tc=cards.find(q=>q.id===target);
     if(tc){selectedId=target;openDrawer(tc);render(false);}
   });
-  $('drawer').classList.add('open');
-  applyEmphasis();
+  $('dBody').scrollTop=st0;
 }
 function closeDrawer(){
   $('drawer').classList.remove('open');
