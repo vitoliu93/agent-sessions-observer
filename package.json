@@ -38,5 +38,8 @@
     "test:web": "bun tests/frontend.ts",
     "prepublishOnly": "bun run typecheck && bun run build"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "string-width": "^7.2.0"
+  }
 }

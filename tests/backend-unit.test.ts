@@ -314,6 +314,9 @@ test('会话选择：codex:// 链接转 ID；最近会话含标题、目录，�
     assert.deepEqual(list.filter(s => matches(s, 'codex 线程')).map(s => s.id), [main]);
     const { formatRow, textWidth } = await import('../src/cli/pick.ts');
     const long = { ...list[0], title: '字体识别技能合并与性能优化'.repeat(8), cwd: '/Users/x/' + '很长的目录/'.repeat(10) };
-    for (const cols of [60, 100, 237]) for (const s of [...list, long]) assert.equal(textWidth(formatRow(s, cols, '/Users/x')), cols - 4, `cols=${cols}`);
+    const emoji = { ...list[0], title: '🚀 发布 a\u0301 版本 👍🏽', cwd: '/Users/x/🎯/项目' };
+    for (const cols of [60, 100, 237]) for (const s of [...list, long, emoji]) assert.equal(textWidth(formatRow(s, cols, '/Users/x')), cols - 4, `cols=${cols}`);
+    // emoji 两格、组合重音不占格，和终端一致；手写宽度表算错过这两类
+    assert.equal(textWidth('🚀'), 2); assert.equal(textWidth('a\u0301'), 1); assert.equal(textWidth('中'), 2);
   } finally { process.env.HOME = old; fs.rmSync(home, { recursive: true, force: true }); }
 });

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
+import stringWidth from 'string-width';
 import { firstUserInfo, indexAllSessions } from './parse.ts';
 import { listCodexRollouts, readCodexMeta } from './codex.ts';
 import { ANALYZER_PROMPT_HEAD } from './summarize.ts';
@@ -67,14 +68,14 @@ export function listRecentSessions(limit = 80): RecentSession[] {
   return [...claude, ...codex].sort((a, b) => b.mtime - a.mtime);
 }
 
-/** 显示宽度：中日韩全角字符占两格。ponytail: 只认常见全角区段，emoji 等少见字符按一格算，靠行尾留白和关闭自动换行兜底 */
-const WIDE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/;
-const charWidth = (ch: string) => WIDE.test(ch) ? 2 : 1;
-export const textWidth = (s: string) => [...s].reduce((w, ch) => w + charWidth(ch), 0);
+/** 显示宽度：全角、emoji 占两格，组合字符不占格（string-width 按 Unicode 东亚宽度和字素簇算） */
+const charWidth = (ch: string) => stringWidth(ch);
+export const textWidth = (s: string) => stringWidth(s);
 function fit(s: string, width: number): string {
   const over = textWidth(s) > width, max = over ? width - 2 : width;
   let out = '', w = 0;
-  for (const ch of s) { if (w + charWidth(ch) > max) break; out += ch; w += charWidth(ch); }
+  // 按字素簇截断：带肤色的 emoji、带组合重音的字母是一个整体，不能从中间切开
+  for (const { segment: ch } of new Intl.Segmenter().segment(s)) { if (w + charWidth(ch) > max) break; out += ch; w += charWidth(ch); }
   return out + (over ? '..' : '') + ' '.repeat(Math.max(0, max - w));
 }
 

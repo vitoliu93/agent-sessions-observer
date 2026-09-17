@@ -6,7 +6,7 @@
 
 ## 小前提
 
-输入 Claude Code / Codex session ID。读取本机 JSONL 和能明确关联的子会话，由本机模型 CLI 归纳成地图。后端是 TypeScript 写的 Node CLI，前端是 React 单页，打包后随 npm 包一起发布，运行时无第三方依赖。
+输入 Claude Code / Codex session ID。读取本机 JSONL 和能明确关联的子会话，由本机模型 CLI 归纳成地图。后端是 TypeScript 写的 Node CLI，前端是 React 单页，打包后随 npm 包一起发布；发布产物是打包好的单文件，用户安装时不下载依赖。
 
 ## 结论
 
