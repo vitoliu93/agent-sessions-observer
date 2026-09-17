@@ -1,0 +1,21 @@
+# 推送 v* 标签时发布到 npm。用 npm 可信发布（OIDC），不需要令牌，也不需要网页确认
+name: publish
+on:
+  push:
+    tags: ['v*']
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - run: npm publish --access public
