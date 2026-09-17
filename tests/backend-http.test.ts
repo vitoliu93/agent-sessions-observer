@@ -152,6 +152,11 @@ test('模型 CLI：没指定时用本机已安装的第一个；指定的没装�
   try {
     let p = run(['--port', '45999']);
     assert.equal(await p.exited, 2); assert.match(await text(p.stderr), /找不到可用的模型 CLI/);
+    // 拼错的选项、选项缺值：报错退出，不再静默跳过
+    p = run(['--prot', '4174']);
+    assert.equal(await p.exited, 2); assert.match(await text(p.stderr), /Unknown option '--prot'/);
+    p = run(['--port']);
+    assert.equal(await p.exited, 2); assert.match(await text(p.stderr), /argument missing/);
     fs.writeFileSync(path.join(bin, 'claude'), '#!/bin/sh\n'); fs.chmodSync(path.join(bin, 'claude'), 0o755);
     p = run(['--cli', 'codex', '--port', '45999']);
     assert.equal(await p.exited, 2); assert.match(await text(p.stderr), /找不到命令 codex.*本机已安装：claude，可改用 --cli claude/);

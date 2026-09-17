@@ -5,6 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import type { Card, Coverage, DataView, Draft, Edge, Live, MapResult, SessionItem, Snapshot, Stamp } from '../shared/types.ts';
 import { findSession, parseSession } from './parse.ts';
 import { buildTree, type Child } from './tree.ts';
@@ -32,16 +33,19 @@ const HELP = `agent-sessions-obs — Agent Session「需求解决地图」观察
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 if (argv.includes('--help') || argv.includes('-h')) { process.stdout.write(HELP); process.exit(0); }
-const flagsWithValues = new Set(['--port', '--interval', '--model', '--budget', '--cli', '--provider']);
-const flag = (k: string, d: string | number): string => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : String(d); };
-const ids: string[] = [];
-for (let i = 0; i < argv.length; i++) {
-  if (flagsWithValues.has(argv[i])) { i++; continue; }   // 跳过 flag 及其值
-  if (argv[i].startsWith('--')) continue;
-  ids.push(sessionRef(argv[i]));
+// 不认识的选项、选项缺值都直接报错退出，不再静默跳过
+function parseArgv() {
+  try {
+    return parseArgs({ args: argv, allowPositionals: true, strict: true, options: {
+      port: { type: 'string' }, interval: { type: 'string' }, budget: { type: 'string' },
+      cli: { type: 'string' }, model: { type: 'string' }, provider: { type: 'string' },
+    } });
+  } catch (e) { console.error((e as Error).message); process.exit(2); }
 }
-const PORT = +flag('--port', 4173);
-const INTERVAL = +flag('--interval', 60) * 1000;
+const { values: opt, positionals } = parseArgv();
+const ids: string[] = positionals.map(sessionRef);
+const PORT = +(opt.port ?? 4173);
+const INTERVAL = +(opt.interval ?? 60) * 1000;
 const CLI_CHOICES = ['codex', 'claude', 'pi'];
 /** 命令能否直接运行：带路径就查这个文件，否则逐个查 PATH 目录 */
 function installed(cmd: string): boolean {
@@ -49,12 +53,12 @@ function installed(cmd: string): boolean {
   const exts = process.platform === 'win32' ? ['', '.exe', '.cmd'] : [''];
   return dirs.some(d => exts.some(e => { try { const f = path.join(d, cmd + e); fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } }));
 }
-const ASKED_CLI = argv.includes('--cli') ? flag('--cli', '') : process.env.OBS_CLI || '';
+const ASKED_CLI = opt.cli ?? process.env.OBS_CLI ?? '';
 const CLI = ASKED_CLI || CLI_CHOICES.find(installed) || '';
 const DEFAULT_MODEL: Record<string, string> = { claude: 'haiku', codex: 'gpt-5.6-luna', pi: '' };  // 各 CLI 的默认压缩模型
-const MODEL = flag('--model', process.env.OBS_MODEL || DEFAULT_MODEL[CLI] || '');
-const PROVIDER = flag('--provider', process.env.OBS_PROVIDER || '');
-const BUDGET = +flag('--budget', 400000);
+const MODEL = opt.model ?? (process.env.OBS_MODEL || DEFAULT_MODEL[CLI] || '');
+const PROVIDER = opt.provider ?? (process.env.OBS_PROVIDER || '');
+const BUDGET = +(opt.budget ?? 400000);
 const MAX_ID = 128, MAX_BODY = 4096;
 const BOOT = Math.random().toString(36).slice(2); // 进程标识：增量历史只在同一进程内拼接
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535 || !Number.isFinite(INTERVAL) || INTERVAL < 100 || !Number.isFinite(BUDGET) || BUDGET < 256) {
