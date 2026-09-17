@@ -46,7 +46,7 @@ export default function Edges({ ready, W, H, edges, byId, pos, cardGroup, emph, 
       adjacent ? `M${ax},${ay}H${(exit + enter) / 2}V${by}H${bx}` :
       `M${ax},${ay}H${exit}V${lane}H${enter}V${by}H${bx}`;
     // 默认只强调主线与未解决问题
-    const main = edge.rels.some(e => e.f === 'GOAL' ||
+    const main = edge.rels.some(e => byId.get(e.f)?.type === 'goal' ||
       (e.v === '妨碍' && isOpen(byId.get(e.f), t)) || (e.v === '留下缺口' && isOpen(byId.get(e.t), t)));
     const hit = emph.active && edge.rels.some(emph.direct);
     const cand = emph.active ? hit : main && defaults++ < 6;

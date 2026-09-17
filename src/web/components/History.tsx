@@ -4,7 +4,7 @@ import type { AppCtx } from '../App.tsx';
 export default function History({ app: { s, a, ready } }: { app: AppCtx }) {
   const d = ready ? s.data! : null, times = d ? (d.history || []).map(x => x.at) : [];
   const viewing = !!d && !s.follow;
-  const label = !d ? '尚无可回放快照' : !times.length ? '旧版本未保存完整历史，仅可查看当前结果' :
+  const label = !d ? '尚无可回放快照' : s.drafting ? '生成中，第一版完成后可回放' : !times.length ? '旧版本未保存完整历史，仅可查看当前结果' :
     `${s.follow ? '实时' : '历史快照'} · #${s.viewTick}`;
   return (<>
     <div style={{ margin: '6px 20px 0' }}>

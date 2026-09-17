@@ -34,7 +34,7 @@ import fs from 'node:fs'; const n=(Number(fs.existsSync(process.env.COUNT)&&fs.r
     const second = await until(async () => { const x = await (await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`)).json(); return x.syncN === 2 && x; });
     assert.equal(second.cards[0].facts[0], 'NEW_FACT');
     assert.equal(second.history[0].cards[0].facts[0], 'OLD_FACT');
-    assert.equal(second.history[0].goal.st, 'unknown');
+    assert.equal(second.history[0].goals[0].st, 'unknown');
     assert.equal(second.history[0].stamps[0].at, 1);
     const post = (route: string, body: unknown, headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${port}${route}`, {method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
     assert.equal((await post('/api/sessions/add',{id:'session'})).status,200);
@@ -107,5 +107,34 @@ test('Node 产物：静态托管、SPA 回退、目录穿越不泄露文件', { 
       const res = await rawGet(port, target);
       assert(!res.includes('SECRET') && !res.includes('"name"'), `${target} leaked: ${res.slice(-80)}`);
     }
+  } finally { proc.kill(); await proc.exited; fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('HTTP: 分析中边输出边给草稿，完成后草稿清空、进入正式快照', { timeout: 15000 }, async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-draft-'));
+  const sid = 'session-draft', dir = path.join(tmp, '.claude/projects/p'); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${sid}.jsonl`), JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:00:00Z', message: { content: 'draft please' } }) + '\n');
+  const answer = JSON.stringify({ goals: [{ id: 'G1', title: '先做', st: 'done' }, { id: 'G2', title: '后做', st: 'doing' }], cards: [{ id: 'S1', type: 'subgoal', title: '子目标', st: 'doing' }, { id: 'C1', type: 'change', title: '修改', st: 'done' }], edges: [{ f: 'G1', t: 'G2', v: '接着' }, { f: 'G2', t: 'S1', v: '拆成' }], live: { now: 'x' }, note: '' });
+  const cut = answer.indexOf('{"id":"C1"');
+  const cli = path.join(tmp, 'fake-model.mjs'), gate = path.join(tmp, 'gate');
+  // 写完前半截后等测试放行，保证测试能看到分析中的草稿
+  fs.writeFileSync(cli, `#!/usr/bin/env bun
+import fs from 'node:fs'; await Bun.stdin.text(); process.stdout.write(${JSON.stringify(answer.slice(0, cut))});
+while (!fs.existsSync(process.env.GATE)) await Bun.sleep(20); process.stdout.write(${JSON.stringify(answer.slice(cut))});`);
+  fs.chmodSync(cli, 0o755);
+  const port = 49000 + Math.floor(Math.random() * 1000);
+  const proc = Bun.spawn(['bun', 'src/cli/index.ts', sid, '--port', String(port), '--cli', cli], { cwd: root, env: { ...process.env, HOME: tmp, GATE: gate }, stdout: 'pipe', stderr: 'pipe' });
+  const data = async () => { const r = await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`).catch(() => null); return r?.ok ? r.json() : null; };
+  try {
+    const mid = await until(async () => { const x = await data(); return x?.draft?.cards?.length && x; }, 10000);
+    assert.equal(mid.syncN, 0); assert.equal(mid.analyzing, true);
+    assert.deepEqual(mid.draft.goals.map((g: any) => g.id), ['G1', 'G2']);
+    assert.deepEqual(mid.draft.cards.map((c: any) => c.id), ['S1']);
+    assert(mid.draft.chars > 0);
+    fs.writeFileSync(gate, '');
+    const done = await until(async () => { const x = await data(); return x?.syncN === 1 && x; }, 10000);
+    assert.equal(done.draft, null);
+    assert.deepEqual(done.goals.map((g: any) => g.id), ['G1', 'G2']);
+    assert.deepEqual(done.edges.map((e: any) => e.v), ['接着', '拆成']);
   } finally { proc.kill(); await proc.exited; fs.rmSync(tmp, { recursive: true, force: true }); }
 });

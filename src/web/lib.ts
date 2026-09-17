@@ -17,7 +17,7 @@ export function atOrBefore<T extends { at?: number }>(xs: readonly T[] | undefin
   return best;
 }
 export const stateAt = (c: Card, t: number): State => atOrBefore(c.states, t)?.s || c.st || 'unknown';
-export const typeOf = (c: Card): CardType => c.id === 'GOAL' ? 'goal' : c.type;
+export const typeOf = (c: Card): CardType => c.type;
 const COL: Record<string, number> = { goal: 0, subgoal: 1, change: 2, risk: 2, group: 2, verify: 3, concl: 4, gap: 4 };
 export const colIdx = (c: Card) => COL[typeOf(c)] ?? 2;
 export const isOpen = (c: Card | undefined, t: number) =>
@@ -27,14 +27,13 @@ const priority = (c: Card, t: number) => isOpen(c, t) ? 0 : stateAt(c, t) === 'f
 
 export function snapshot(d: DataView, t: number): View {
   const saved = atOrBefore(d.history, t);
-  if (saved) return { ...d, ...saved, syncN: d.syncN, history: d.history };
-  return { ...d, goal: d.goal ? { ...d.goal, type: 'goal', ...(d.goal.type ? {} : { states: [], st: 'unknown' as const }) } : null };
+  return saved ? { ...d, ...saved, syncN: d.syncN, history: d.history } : d;
 }
-export const cardsOf = (v: View | null): Card[] => v ? [v.goal, ...v.cards].filter((c): c is Card => !!c) : [];
+export const cardsOf = (v: View | null): Card[] => v ? [...(v.goals || []), ...v.cards] : [];
 export const liveValue = (v: View, t: number): Live =>
   Array.isArray(v.live) ? atOrBefore(v.live as Live[], t) || {} : v.live || {};
 
-/** 分支只使用明确归属或明确关系，不按标题相似度猜。 */
+/** 分支只使用明确归属或明确关系，不按标题相似度猜。目标经「拆成」拥有子目标的全部路径。 */
 function owners(all: Card[], edges: Edge[]) {
   const sub = all.filter(c => c.type === 'subgoal'), result = new Map<string, Set<string>>();
   for (const c of all) {
@@ -56,6 +55,11 @@ function owners(all: Card[], edges: Edge[]) {
     }
     if (!changed) break;
   }
+  for (const e of edges) {
+    if (e.v !== '拆成') continue;
+    for (const set of result.values()) if (set.has(e.t)) set.add(e.f);
+  }
+  for (const c of all) if (c.type === 'goal') result.set(c.id, new Set([c.id]));
   return result;
 }
 
@@ -65,15 +69,17 @@ export type Plan = ReturnType<typeof plan>;
 export function plan(all: Card[], edges: Edge[], branch: string, expanded: Set<string>, t: number) {
   const membership = owners(all, edges);
   let list = all;
-  if (branch && branch !== '__unassigned__' && !list.some(c => c.type === 'subgoal' && c.id === branch)) branch = '';
-  if (branch) list = list.filter(c => c.id === 'GOAL' ||
-    (branch === '__unassigned__' ? !membership.get(c.id)?.size : membership.get(c.id)?.has(branch)));
+  if (branch && branch !== '__unassigned__' && !list.some(c => ['goal', 'subgoal'].includes(c.type) && c.id === branch)) branch = '';
+  // 看子目标时也保留拆出它的目标；看归属待确认时保留全部目标
+  const owner = membership.get(branch);
+  if (branch) list = list.filter(c => branch === '__unassigned__' ? c.type === 'goal' || !membership.get(c.id)?.size
+    : membership.get(c.id)?.has(branch) || (c.type === 'goal' && !!owner?.has(c.id)));
   const cols: Card[][] = Array.from({ length: 5 }, () => []);
   for (const c of list) cols[colIdx(c)].push(c);
   const cardGroup = new Map<string, string>(), folded = new Map<number, Card[]>();
   cols.forEach((pool, i) => {
     const ordered = pool.map((c, n) => ({ c, n })).sort((a, b) => priority(a.c, t) - priority(b.c, t) || a.n - b.n).map(x => x.c);
-    let shown = expanded.has(String(i)) ? ordered : ordered.slice(0, i === 0 ? 1 : 3);
+    let shown = expanded.has(String(i)) ? ordered : ordered.slice(0, 3);
     // 概览保留修改和结论入口
     const keep = i === 4 ? ordered.find(c => c.type === 'concl') :
       i === 2 ? ordered.find(c => ['change', 'group'].includes(c.type)) : undefined;
@@ -82,6 +88,6 @@ export function plan(all: Card[], edges: Edge[], branch: string, expanded: Set<s
     cols[i] = shown;
     if (hidden.length) { folded.set(i, hidden); for (const c of hidden) cardGroup.set(c.id, 'fold-' + i); }
   });
-  const unassigned = all.filter(c => c.id !== 'GOAL' && !membership.get(c.id)?.size).length;
+  const unassigned = all.filter(c => c.type !== 'goal' && !membership.get(c.id)?.size).length;
   return { branch, cols, folded, cardGroup, unassigned };
 }

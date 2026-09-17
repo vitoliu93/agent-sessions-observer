@@ -17,7 +17,7 @@ const good = (): any => ({
 });
 
 test('结构坏图拒绝；坏卡、重复 ID、坏连线只丢弃并计数，坏状态记为未知', () => {
-  for (const mutate of [(x: any) => { x.goal.id = 'NOT_GOAL'; }, (x: any) => { x.cards = {}; }]) { const x = good(); mutate(x); assert.throws(() => normalizeMap(x), /bad map/); }
+  for (const mutate of [(x: any) => { delete x.goal; }, (x: any) => { x.cards = {}; }]) { const x = good(); mutate(x); assert.throws(() => normalizeMap(x), /bad map/); }
   const z = good(); z.cards.push({ ...z.cards[0] }, { ...z.cards[1], id: 'X1', type: 'made-up' }); z.cards[1].st = 'wat'; z.cards[1].facts = 'oops';
   const zm = normalizeMap(z);
   assert.deepEqual(zm.cards.map(c => c.id), ['S1', 'C1']); assert.match(zm.note, /丢弃 2 张/);
@@ -26,7 +26,7 @@ test('结构坏图拒绝；坏卡、重复 ID、坏连线只丢弃并计数，�
   const kept = normalizeMap(y);
   assert.equal(kept.edges.length, 2); assert.match(kept.note, /丢弃 3 条/);
   const map = normalizeMap(good());
-  assert.equal(map.goal.st, 'unknown');
+  assert.equal(map.goals[0].st, 'unknown');
   assert.equal(map.cards[1].zoneId, 'S1');
 });
 
@@ -134,16 +134,16 @@ test('署名只能来自输入身份，伪造来源降为未定位；空标题�
 });
 
 test('模型非零退出不采信 JSON；超时和取消都结束自己的进程', async () => {
-  const { runClaude } = await import('../src/cli/summarize.ts');
+  const { runModel } = await import('../src/cli/summarize.ts');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-cli-'));
   try {
     const cli = path.join(dir, 'model');
     fs.writeFileSync(cli, '#!/bin/sh\ncat >/dev/null\necho "{}"\nexit 7\n'); fs.chmodSync(cli, 0o755);
-    await assert.rejects(runClaude('input', { cli }), /exit 7/);
+    await assert.rejects(runModel('input', { cli }), /exit 7/);
     fs.writeFileSync(cli, '#!/bin/sh\ncat >/dev/null\nsleep 30\n');
-    await assert.rejects(runClaude('input', { cli, timeoutMs: 40 }), /timeout/);
+    await assert.rejects(runModel('input', { cli, timeoutMs: 40 }), /timeout/);
     const controller = new AbortController();
-    const run = runClaude('input', { cli, signal: controller.signal });
+    const run = runModel('input', { cli, signal: controller.signal });
     controller.abort(); await assert.rejects(run, /cancelled/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -165,7 +165,7 @@ test('证据引用用会话 key；目标卡未知署名写进备注', async () =
   assert.match(text, /\[host:7\]/);
   const x = good(); x.goal.sig = [{ verb: '定义', agent: 'invented' }];
   const m = normalizeMap(x, { agentKeys: ['host'] });
-  assert.deepEqual(m.goal.sig, []); assert.match(m.note, /目标署名 invented/);
+  assert.deepEqual(m.goals[0].sig, []); assert.match(m.goals[0].notes!.join(), /署名 invented/);
 });
 
 test('会话标题：改名优先，其次最新 ai-title', async () => {
@@ -216,4 +216,64 @@ test('Codex：前缀只认主线程，过滤注入上下文，子 agent 按 pare
     assert.deepEqual(tree.children.map(c => [c.key, c.matched, c.events[0].text]), [['backend_fix', 'exact-parent-id', 'CHILD_DONE']]);
     assert.equal(tree.children[0].dispatchLine, 7);
   } finally { process.env.HOME = old; fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('多目标：旧格式单目标兼容；目标间只允许 接着/推翻；无合法目标整版拒绝', () => {
+  const x = good(); delete x.goal;
+  x.goals = [{ id: 'G1', title: '先做 A', st: 'done' }, { id: 'G2', title: '接着做 B', st: 'doing' }, { id: 'G3', title: '推倒 A 重来' }, { id: 'G1', title: '重复' }];
+  x.edges = [{ f: 'G1', t: 'G2', v: '接着' }, { f: 'G3', t: 'G1', v: '推翻' }, { f: 'G1', t: 'S1', v: '接着' }, { f: 'G2', t: 'S1', v: '拆成' }];
+  const m = normalizeMap(x);
+  assert.deepEqual(m.goals.map(g => [g.id, g.type, g.st]), [['G1', 'goal', 'done'], ['G2', 'goal', 'doing'], ['G3', 'goal', 'unknown']]);
+  assert.deepEqual(m.edges.map(e => e.v), ['接着', '推翻', '拆成']);
+  assert.match(m.note, /丢弃 1 张.*丢弃 1 条/);
+  assert.equal(m.cards.some(c => c.type === 'goal'), false);
+  assert.throws(() => normalizeMap({ ...x, goals: [{ id: 'G1', title: ' ' }] }), /no valid goal/);
+});
+
+test('半截 JSON 只取写完的目标、卡与边，不留半张卡', async () => {
+  const { parsePartialJson } = await import('../src/cli/summarize.ts');
+  const full = JSON.stringify({ goals: [{ id: 'G1', title: 'g', sig: [{ verb: 'v', agent: 'host' }] }], cards: [{ id: 'S1', type: 'subgoal', title: 's "}{]" 引号' }, { id: 'C1', type: 'change', title: 'c', facts: ['x'] }], edges: [{ f: 'G1', t: 'S1', v: '拆成' }] });
+  assert.equal(parsePartialJson('```json\n'), null);
+  assert.equal(parsePartialJson(full.slice(0, full.indexOf('host'))), null);   // 目标还没写完
+  const cut = parsePartialJson(full.slice(0, full.indexOf('"facts"')));      // C1 写了一半
+  assert.deepEqual(cut.cards.map((c: any) => c.id), ['S1']);
+  assert.equal(cut.cards[0].title, 's "}{]" 引号');
+  assert.deepEqual(parsePartialJson('```json\n' + full + '\n```'), JSON.parse(full));
+});
+
+test('三种模型 CLI 的流式协议：边收边回调，结束取完整正文；报错带上原因', async () => {
+  const { runModel } = await import('../src/cli/summarize.ts');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-stream-')), oldPath = process.env.PATH;
+  const answer = JSON.stringify({ goals: [{ id: 'G1', title: 'ok' }], cards: [], edges: [] });
+  const half = JSON.stringify(answer.slice(0, 20)), rest = JSON.stringify(answer.slice(20)), whole = JSON.stringify(answer);
+  const script = (name: string, body: string) => { fs.writeFileSync(path.join(dir, name), `#!/usr/bin/env bun\n${body}`); fs.chmodSync(path.join(dir, name), 0o755); };
+  const say = 'const say=o=>console.log(JSON.stringify(o));';
+  script('codex', `${say} if(process.env.FAIL_MODE){} let n=0; for await (const chunk of console) { const m=JSON.parse(chunk);
+    if(m.id===1) say({id:1,result:{}}); if(m.id===2) say({id:2,result:{thread:{id:'t'}}});
+    if(m.id===3){ if(process.env.FAIL_MODE){say({method:'error',params:{error:{message:'502 upstream'},willRetry:false}});say({method:'turn/completed',params:{turn:{status:'failed',error:null}}});continue;}
+      say({id:3,result:{turn:{id:'u'}}}); say({method:'item/agentMessage/delta',params:{itemId:'x',delta:'{"goa'}}); say({method:'error',params:{error:{message:'stream disconnected'},willRetry:true}}); say({method:'item/agentMessage/delta',params:{itemId:'i',delta:${half}}}); await Bun.sleep(50);
+      say({method:'item/agentMessage/delta',params:{itemId:'i',delta:${rest}}}); say({method:'item/completed',params:{item:{type:'agentMessage',id:'i',text:${whole}}}});
+      say({method:'turn/completed',params:{turn:{status:'completed'}}}); } }`);
+  script('claude', `${say} await Bun.stdin.text(); if(process.env.FAIL_MODE){say({type:'result',is_error:true,result:'API Error: 502'});process.exit(1);}
+    say({type:'system',subtype:'init'}); say({type:'stream_event',event:{type:'message_start'}});
+    say({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:${half}}}}); await Bun.sleep(50);
+    say({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:${rest}}}}); say({type:'result',is_error:false,result:${whole}});`);
+  script('pi', `${say} await Bun.stdin.text(); say({type:'message_start',message:{role:'assistant',content:[]}});
+    say({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:${half}}}); await Bun.sleep(50);
+    say({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:${rest}}});
+    say({type:'message_end',message:{role:'assistant',content:[{type:'thinking',thinking:'x'},{type:'text',text:${whole}}]}});`);
+  process.env.PATH = `${dir}:${oldPath}`;
+  try {
+    for (const cli of ['codex', 'claude', 'pi']) {
+      const seen: string[] = [];
+      const retries: string[] = [];
+      const out: any = await runModel('prompt', { cli, onText: t => seen.push(t), onRetry: m => retries.push(m) });
+      if (cli === 'codex') assert.deepEqual(retries, ['stream disconnected']);
+      assert.equal(out.goals[0].title, 'ok', cli);
+      assert(seen.some(t => t.length > 0 && t.length < answer.length), `${cli} 没有增量：${JSON.stringify(seen)}`);
+    }
+    process.env.FAIL_MODE = '1';
+    await assert.rejects(runModel('prompt', { cli: 'codex' }), /codex turn failed: 502 upstream/);
+    await assert.rejects(runModel('prompt', { cli: 'claude' }), /claude exit 1: API Error: 502/);
+  } finally { process.env.PATH = oldPath; delete process.env.FAIL_MODE; fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -2,7 +2,7 @@
 
 export type CardType = 'goal' | 'subgoal' | 'change' | 'risk' | 'verify' | 'concl' | 'gap' | 'group';
 export type State = 'doing' | 'done' | 'failed' | 'partial' | 'risk' | 'resolved' | 'unknown';
-export type Verb = '拆成' | '采用' | '妨碍' | '解决' | '检查' | '支持' | '留下缺口';
+export type Verb = '拆成' | '接着' | '推翻' | '采用' | '妨碍' | '解决' | '检查' | '支持' | '留下缺口';
 
 export interface Sig { verb: string; agent: string }
 export interface Step { title: string; who: string; st: State }
@@ -35,7 +35,7 @@ export interface Edge { f: string; t: string; v: Verb; born?: number }
 
 export interface Live { now?: string; known?: string; next?: string; nextK?: string; at?: number }
 
-export interface MapResult { goal: Card; cards: Card[]; edges: Edge[]; live: Live; note: string }
+export interface MapResult { goals: Card[]; cards: Card[]; edges: Edge[]; live: Live; note: string }
 
 export interface CoverageSession { key: string; totalChars: number; includedChars: number; truncated: boolean }
 export interface Coverage { truncated: boolean; missing: string[]; note: string; sessions: CoverageSession[] }
@@ -47,7 +47,8 @@ export interface Stamp { at: number; data: string; summary: string }
 /** 一次成功归纳的完整快照；历史回放与抽屉都读它 */
 export interface Snapshot {
   at: number;
-  goal: Card;
+  /** 用户先后提出的目标，按提出顺序 */
+  goals: Card[];
   cards: Card[];
   edges: Edge[];
   live: Live;
@@ -60,9 +61,19 @@ export interface Snapshot {
   coverage?: Coverage;
 }
 
+/** 模型还在输出时已写完的部分；只在分析中存在，不进历史 */
+export interface Draft {
+  goals: Card[];
+  cards: Card[];
+  edges: Edge[];
+  live: Live;
+  /** 已收到的模型正文字数 */
+  chars: number;
+  startedAt: string;
+}
+
 /** GET /api/data */
-export interface DataView extends Omit<Snapshot, 'at' | 'goal' | 'coverage'> {
-  goal: Card | null;
+export interface DataView extends Omit<Snapshot, 'at' | 'coverage'> {
   coverage?: Coverage;
   sessionId: string | null;
   prefix: string;
@@ -72,6 +83,7 @@ export interface DataView extends Omit<Snapshot, 'at' | 'goal' | 'coverage'> {
   boot: string;
   historySince: number;
   history: Snapshot[];
+  draft: Draft | null;
 }
 
 /** GET /api/sessions 列表项 */

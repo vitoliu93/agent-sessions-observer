@@ -17,6 +17,8 @@ export interface Store {
   drawerId: string | null; drawerShown: string | null; opener: Element | null; room: boolean;
   branchId: string; expanded: Set<string>;
   requestN: number; lastKey: string;
+  /** 正在显示分析中的草稿（还没有第一版正式地图）；fast：分析中每秒拉一次 */
+  drafting: boolean; fast: boolean;
   notice: string; stat: string; resyncDisabled: boolean; boot: { show: boolean; msg: string };
   swOpen: boolean; pcOpen: boolean; pcQuery: string; histOpen: boolean;
   /** 布局稳定（卡片已定位可见）后执行：聚焦、滚动到卡片 */
@@ -28,7 +30,7 @@ export interface AppCtx { s: Store; a: Actions; view: View | null; ready: boolea
 const newStore = (): Store => ({
   data: null, pending: null, sessions: [], curSid: null, viewTick: 0, follow: true,
   selectedId: null, hoveredId: null, selAgent: null, drawerId: null, drawerShown: null, opener: null, room: false,
-  branchId: '', expanded: new Set(), requestN: 0, lastKey: '',
+  branchId: '', expanded: new Set(), requestN: 0, lastKey: '', drafting: false, fast: false,
   notice: '', stat: '加载中…', resyncDisabled: false, boot: { show: false, msg: '正在读取会话…' },
   swOpen: false, pcOpen: false, pcQuery: '', histOpen: false, after: [],
 });
@@ -58,17 +60,17 @@ function createActions(s: Store, bump: () => void) {
     s.expanded.clear(); closeDrawer(false);
   }
   function clearMap(message: string) {
-    s.data = null; s.lastKey = ''; s.pending = null;
+    s.data = null; s.lastKey = ''; s.pending = null; s.drafting = false;
     resetView();
     s.pcOpen = false; s.boot = { show: true, msg: message };
     bump();
   }
-  function adopt(d: DataView) {
+  function adopt(d: DataView, key = `${d.sessionId}:${d.syncN}:${d.updatedAt || ''}`) {
     const switched = s.data?.sessionId !== d.sessionId;
-    s.data = d; s.pending = null;
+    s.data = d; s.pending = null; s.drafting = !d.syncN;
     if (switched) { resetView(); s.follow = true; s.viewTick = d.syncN; }
     if (s.follow) s.viewTick = d.syncN;
-    s.lastKey = `${d.sessionId}:${d.syncN}:${d.updatedAt || ''}`;
+    s.lastKey = key;
     render();
   }
   async function refresh() {
@@ -87,12 +89,21 @@ function createActions(s: Store, bump: () => void) {
       if (n !== s.requestN) return;
       if (d.historySince) d.history = [...(base?.history || []).filter(h => h.at <= d.historySince), ...d.history];
       s.curSid = d.sessionId || sid;
-      s.boot = { show: !d.syncN, msg: d.lastError ? `分析失败：${d.lastError}` :
-        d.analyzing ? '正在生成第一版地图，可切换会话或稍后重试。' : '尚无摘要，请触发同步。' };
-      s.stat = d.analyzing ? '摘要生成中…' : d.lastError ? '上次同步失败' : `最新 · #${d.syncN}`;
-      s.resyncDisabled = !!d.analyzing;
-      s.notice = d.lastError || '';
-      if (!d.syncN) return clearMap(d.lastError ? `分析失败：${d.lastError}` : '正在生成第一版地图，可切换或稍后重试。');
+      const dr = d.analyzing ? d.draft : null, shown = dr ? dr.goals.length + dr.cards.length : 0;
+      const failed = `分析失败：${d.lastError}。稍后会自动重试，也可以点「触发同步」立即重试。`;
+      const waiting = !dr?.chars ? '正在生成第一版地图：等模型开始输出…' : `正在生成第一版地图：已收到 ${dr.chars} 字，等第一个目标写完…`;
+      s.boot = { show: !d.syncN && !shown, msg: d.lastError && !d.analyzing ? failed : d.analyzing ? waiting : '尚无摘要，请触发同步。' };
+      s.stat = d.analyzing ? (shown ? `摘要生成中 · 已出 ${shown} 张卡` : '摘要生成中…') : d.lastError ? '上次同步失败' : `最新 · #${d.syncN}`;
+      s.resyncDisabled = !!d.analyzing; s.fast = !!d.analyzing;
+      s.notice = d.analyzing ? '' : d.lastError || '';
+      if (!d.syncN) {
+        // 第一版还没出来：边收边画草稿；已有正式地图时不拿草稿替换
+        if (dr?.goals.length) {
+          const key = `${d.sessionId}:draft:${dr.chars}`;
+          return key === s.lastKey ? bump() : adopt({ ...d, goals: dr.goals, cards: dr.cards, edges: dr.edges, live: dr.live, history: [] }, key);
+        }
+        return clearMap(s.boot.msg);
+      }
       if (`${d.sessionId}:${d.syncN}:${d.updatedAt || ''}` === s.lastKey) return bump();
       // 阅读中（详情、选中、回放、焦点在地图内）不替换地图，先提示
       if (s.data?.sessionId === d.sessionId && (!s.follow || s.drawerId || s.selectedId || document.activeElement?.closest('#wrap'))) {
@@ -180,15 +191,17 @@ export default function App() {
   const { s, a } = ref.current;
 
   useEffect(() => {
-    a.refresh();
-    const timer = setInterval(a.refresh, 5000);
+    // 分析中每秒拉一次草稿，平时 5 秒
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => { timer = setTimeout(async () => { await a.refresh(); tick(); }, s.fast ? 1000 : 5000); };
+    a.refresh().then(tick);
     document.addEventListener('keydown', a.key);
     document.addEventListener('click', a.docClick);
-    return () => { clearInterval(timer); document.removeEventListener('keydown', a.key); document.removeEventListener('click', a.docClick); };
+    return () => { clearTimeout(timer); document.removeEventListener('keydown', a.key); document.removeEventListener('click', a.docClick); };
   }, [a]);
 
   const view = s.data ? snapshot(s.data, s.viewTick) : null, t = s.viewTick;
-  const ready = !!(view?.goal && s.data?.syncN);
+  const ready = !!(view?.goals?.length && (s.data?.syncN || s.drafting));
   const all = ready ? cardsOf(view) : [], edges: Edge[] = ready ? view!.edges || [] : [];
   const byId = new Map(all.map(c => [c.id, c]));
   const p = plan(all, edges, s.branchId, s.expanded, t);
@@ -204,7 +217,7 @@ export default function App() {
   const emph: Emph = { active, hl, direct, groups: new Set([...hl].map(id => p.cardGroup.get(id)).filter((g): g is string => !!g)) };
 
   const app: AppCtx = { s, a, view, ready, all, byId };
-  const note = ready ? [view!.note, view!.coverage?.note,
+  const note = ready ? [s.drafting ? '生成中：模型还在输出，已出的卡片可能还会变' : '', view!.note, view!.coverage?.note,
     (view!.children || []).some(c => ['no-file', 'ambiguous'].includes(c.matched) || c.events === 0) ?
       '部分子会话未定位或归属不确定，不能视作完整覆盖。' : ''].filter(Boolean).join(' · ') : '';
 
@@ -215,10 +228,11 @@ export default function App() {
     <div className="toolbar">
       <label>查看 <select id="branch" value={p.branch} onChange={e => a.branch(e.target.value)}>
         <option value="">全局概览</option>
+        {all.filter(c => c.type === 'goal').length > 1 && all.filter(c => c.type === 'goal').map(c => <option key={c.id} value={c.id}>{`目标 · ${c.title}`}</option>)}
         {all.filter(c => c.type === 'subgoal').map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
         {p.unassigned > 0 && <option value="__unassigned__">{`归属待确认 · ${p.unassigned} 条`}</option>}
       </select></label>
-      <span id="scope">{ready ? `${all.length - 1} 条记录 · ${all.filter(c => isOpen(c, t)).length} 项风险/缺口待解决` +
+      <span id="scope">{ready ? `${all.filter(c => c.type === 'goal').length} 个目标 · ${all.filter(c => c.type !== 'goal').length} 条记录 · ${all.filter(c => isOpen(c, t)).length} 项风险/缺口待解决` +
         (p.unassigned ? ` · ${p.unassigned} 条归属待确认` : '') : ''}</span>
       <button id="reset" onClick={() => a.reset()}>重置视图</button>
       <button id="pending" hidden={!s.pending} onClick={() => a.takePending()}>{s.pending ? `有新摘要 #${s.pending.syncN} · 点击更新` : ''}</button>
