@@ -95,7 +95,6 @@ export function matches(s: RecentSession, query: string): boolean {
 /** 终端交互选择：↑↓ 选择，输入文字筛选，回车确认，Esc / Ctrl-C 取消（返回 null） */
 export function pickSession(sessions: RecentSession[]): Promise<string | null> {
   const { stdin, stdout } = process;
-  const home = os.homedir();
   let query = '', index = 0, top = 0;
   return new Promise(resolve => {
     const draw = () => {

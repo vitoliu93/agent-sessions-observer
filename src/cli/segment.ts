@@ -128,7 +128,7 @@ export function buildTranscriptDetailed(hostSession: SegHost, children: SegChild
   const limits = parts.map(p => Math.min(160, p.text.length));
   let left = Math.floor(budget) - parts.length + 1 - limits.reduce((a, b) => a + b, 0);
   while (left > 0) {
-    const hungry = parts.map((p, i) => i).filter(i => limits[i] < parts[i].text.length);
+    const hungry = parts.map((_, i) => i).filter(i => limits[i] < parts[i].text.length);
     if (!hungry.length) break;
     const share = Math.max(1, Math.floor(left / hungry.length));
     for (const i of hungry) { const n = Math.min(share, left, parts[i].text.length - limits[i]); limits[i] += n; left -= n; }
