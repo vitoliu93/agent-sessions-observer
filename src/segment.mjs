@@ -1,16 +1,24 @@
 // segment.mjs — 事件流 → 候选 episode 粗切 + 压缩文本（喂给 LLM）
 const GAP_MS = 5 * 60 * 1000;      // 5 分钟无事件 → 分段
 const MAX_TEXT = 1100;             // 单条 assistant/user 文本截断
-const MAX_OUT = 260;               // tool result 首尾截断
 const MAX_THINK = 300;
 const MAX_SEG_CHARS = 16000;       // 单段上限
 
+function headTail(text, limit, label = '内容') {
+  if (text.length <= limit) return { text, truncated: false };
+  const mark = `\n      …[${label}原长 ${text.length} 字，已保留头尾]…\n`;
+  const room = Math.max(0, limit - mark.length);
+  const head = Math.ceil(room * 0.6), tail = room - head;
+  return { text: (text.slice(0, head) + mark + (tail ? text.slice(-tail) : '')).slice(0, limit), truncated: true };
+}
+
 export function fmtToolInput(name, input = {}) {
-  const j = v => JSON.stringify(v ?? '').slice(0, 160);
   switch (name) {
     case 'Bash': return String(input.command || '').replace(/\s+/g, ' ').slice(0, 220);
     case 'Read': case 'Write': case 'Edit': return String(input.file_path || '');
     case 'Agent': case 'Task': return `${input.description || input.subagent_type || ''} :: ${String(input.prompt || '').slice(0, 80)}`;
+    case 'spawn_agent': return `${input.task_name || '?'} (${input.agent_type || 'agent'})`;
+    case 'exec': return String(input.input || '').replace(/\s+/g, ' ').slice(0, 220);
     case 'SendMessage': return `to=${input.to || '?'} ${String(input.summary || '').slice(0, 60)}`;
     case 'Skill': return String(input.name || input.skill || '');
     default: {
@@ -20,7 +28,6 @@ export function fmtToolInput(name, input = {}) {
   }
 }
 
-function tsShort(ts) { return ts ? String(ts).slice(11, 19) : '??:??:??'; }
 function tsOf(ev) { return ev.ts ? Date.parse(ev.ts) : 0; }
 
 /** 大回包的已知噪音模式（后台任务提示、系统输出等）整体跳过 */
@@ -40,20 +47,19 @@ function resultBody(o) {
 }
 
 /** 一个 session（host 或 child）→ 段落数组 [{start,end,lines:[...]}] */
-export function segmentSession(events, label) {
+export function segmentSession(events, label, source = '', { includeSidechain = false } = {}) {
   const segs = [];
   let cur = null;
   const push = () => { if (cur && cur.lines.length) segs.push(cur); cur = null; };
-  const open = (ev) => { cur = { label, start: ev.ts, end: ev.ts, lines: [] }; };
   const GAP_MARK = '\n      ⟪ 时间断裂 · 此处省略无变化区间 ⟫';
 
   let lastTs = 0;
   for (const ev of events) {
-    if (ev.side) continue;
+    if (ev.side && !includeSidechain) continue;
     const t = tsOf(ev);
     const gap = lastTs && t - lastTs > GAP_MS;
     const isUserTurn = ev.type === 'user' && ev.text.trim() && !ev.blocks.some(b => b.t === 'result');
-    const isDispatch = ev.blocks.some(b => b.t === 'tool' && (b.name === 'Agent' || b.name === 'Task' ||
+    const isDispatch = ev.blocks.some(b => b.t === 'tool' && (b.name === 'Agent' || b.name === 'Task' || b.name === 'spawn_agent' ||
       (b.name === 'Bash' && /herdr agent (?:prompt|start)\s/.test(String(b.input?.command || '')))));
     if (!cur || gap || isUserTurn || isDispatch) {
       if (cur && gap) cur.lines.push(GAP_MARK);
@@ -61,31 +67,32 @@ export function segmentSession(events, label) {
     }
     lastTs = t || lastTs;
     cur.end = ev.ts || cur.end;
-    const hh = tsShort(ev.ts);
+    const evidence = source ? ` [${source}:${ev.line || '?'}]` : '';
     // 工具回包行（user 行携带 tool_result）
     for (const b of ev.blocks) {
       if (b.t === 'result') {
         if (b.isError) {
-          cur.lines.push(`      ↳ ❌ ${resultBody(b.out).slice(0, 220)}`);
+          cur.lines.push(`      ↳${evidence} ❌ ${resultBody(b.out).slice(0, 220)}`);
           continue;
         }
         // Read/Write/Edit/Glob/Grep 等文件类回包对因果无增益，只留一行确认
         const body = resultBody(b.out);
         if (!body) continue;
-        cur.lines.push(`      ↳ ${body}`);
+        cur.lines.push(`      ↳${evidence} ${body}`);
       }
     }
     if (isUserTurn) {
       const ut = ev.text.trim();
       if (/^<(local-command|command-)/.test(ut)) continue; // CLI 元信息（/model 等）不入图
-      cur.lines.push(`      👤 USER: ${ev.text.replace(/\s+/g, ' ').slice(0, MAX_TEXT)}`);
+      const clipped = headTail(ev.text.replace(/\s+/g, ' '), MAX_TEXT, '用户需求');
+      cur.lines.push(`      👤 USER:${evidence} ${clipped.text}`);
     } else if (ev.type === 'assistant') {
       for (const b of ev.blocks) {
-        if (b.t === 'think' && b.x.trim()) cur.lines.push(`      💭 ${b.x.replace(/\s+/g, ' ').slice(0, MAX_THINK)}`);
-        else if (b.t === 'tool') cur.lines.push(`      🔧 ${b.name} ${fmtToolInput(b.name, b.input)}`);
+        if (b.t === 'think' && b.x.trim()) cur.lines.push(`      💭${evidence} ${b.x.replace(/\s+/g, ' ').slice(0, MAX_THINK)}`);
+        else if (b.t === 'tool') cur.lines.push(`      🔧${evidence} ${b.name} ${fmtToolInput(b.name, b.input)}`);
       }
       const at = ev.text.replace(/\s+/g, ' ').trim();
-      if (at) cur.lines.push(`      💬 ${at.slice(0, MAX_TEXT)}`);
+      if (at) cur.lines.push(`      💬${evidence} ${headTail(at, MAX_TEXT, '代理输出').text}`);
     }
     if (cur.lines.length > 60) { push(); cur = { label, start: ev.ts, end: ev.ts, lines: [] }; }
   }
@@ -99,20 +106,36 @@ export function segmentSession(events, label) {
 }
 
 /** 组装整棵树的压缩文本，控制总量预算 */
-export function buildTranscript(hostSession, children, budget = 300000) {
+export function buildTranscriptDetailed(hostSession, children, budget = 300000) {
   const parts = [];
-  parts.push(`# 主会话 host（${hostSession.sessionId.slice(0, 8)}…）`);
-  parts.push(...segmentSession(hostSession.events, 'host'));
+  parts.push({ key: 'host', text: `# 主会话 host（${hostSession.sessionId.slice(0, 8)}…）\n源文件：${hostSession.file || '未提供'}\n${segmentSession(hostSession.events, 'host', hostSession.file ? 'host' : '').join('\n')}` });
   for (const c of children) {
-    if (!c.events.length) continue;
-    parts.push(`\n# 子会话 ${c.key}（${c.kind} · ${c.sessionId?.slice(0, 8) || '未定位到文件'}）· ${c.label}`);
-    parts.push(...segmentSession(c.events, c.key));
+    // 即使没有可读事件也要留下身份和匹配状态，模型不能把它当作没有该 agent。
+    const body = c.events?.length ? segmentSession(c.events, c.key, c.file ? c.key : '', { includeSidechain: true }).join('\n') : '      ⟪未取得可归属事件；不可据此作出结论⟫';
+    parts.push({ key: c.key, text: `# 子会话 ${c.key}（${c.kind} · ${c.sessionId?.slice(0, 8) || '未定位到文件'}）· ${c.label}\n匹配=${c.matched || 'unknown'}\n${body}` });
   }
-  let text = parts.join('\n');
-  if (text.length > budget) {
-    // 超预算：保头（需求背景）也保尾（最新进展），只截中段——尾段是最重要的实时信息
-    const headN = Math.floor(budget * 0.6);
-    text = text.slice(0, headN) + '\n…(中段超出预算，已截断)…\n' + text.slice(-(budget - headN));
+  if (!Number.isFinite(budget) || budget < parts.length * 160) throw new Error(`transcript budget too small for ${parts.length} session identities`);
+  // 短会话用不完的额度交回；不能让十个空子会话挤掉主会话的大半内容。
+  const limits = parts.map(p => Math.min(160, p.text.length));
+  let left = Math.floor(budget) - parts.length + 1 - limits.reduce((a, b) => a + b, 0);
+  while (left > 0) {
+    const hungry = parts.map((p, i) => i).filter(i => limits[i] < parts[i].text.length);
+    if (!hungry.length) break;
+    const share = Math.max(1, Math.floor(left / hungry.length));
+    for (const i of hungry) { const n = Math.min(share, left, parts[i].text.length - limits[i]); limits[i] += n; left -= n; }
   }
-  return text;
+  const rendered = parts.map((p, i) => {
+    const clip = headTail(p.text, limits[i], `会话 ${p.key}`);
+    return { key: p.key, totalChars: p.text.length, includedChars: clip.text.length, truncated: clip.truncated || /原长 .* 字|\[\d+ chars\]|中段截断/.test(p.text), text: clip.text };
+  });
+  const truncated = rendered.some(x => x.truncated);
+  return {
+    text: rendered.map(x => x.text).join('\n'),
+    coverage: { truncated, missing: children.filter(c => !c.events?.length).map(c => c.key), note: truncated ? '部分记录被截断；未输入内容不能作为结论，需查原始证据。' : '已输入可读取的压缩片段，不等于完整原文或已核实结论。', sessions: rendered.map(({ text, ...x }) => x) },
+  };
+}
+
+/** 兼容旧调用面。需要覆盖范围时使用 buildTranscriptDetailed。 */
+export function buildTranscript(hostSession, children, budget = 300000) {
+  return buildTranscriptDetailed(hostSession, children, budget).text;
 }

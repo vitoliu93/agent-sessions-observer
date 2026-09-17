@@ -1,7 +1,10 @@
 // tree.mjs — agent 树重建：herdr 派生兄弟会话 + Agent(Task) 原生子agent + SendMessage
-import { parseSession, firstUserText, indexAllSessions, norm } from './parse.mjs';
+import { isCodexFile, codexChildren } from './codex.mjs';
+import { parseSession, firstUserInfo, indexAllSessions, norm } from './parse.mjs';
 import { ANALYZER_PROMPT_HEAD } from './summarize.mjs';
-import { listCursorDbs, matchCursorDispatch, parseCursorSession } from './cursor.mjs';
+import { listCursorDbs, matchCursorDispatch, parseCursorSession, projectKey } from './cursor.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const HERDR_RE = /herdr agent (?:prompt|start)\s+([a-z][a-z0-9_-]{0,31})/g;
 const HERDR_PROMPT_RE = /herdr agent prompt\s+([a-z][a-z0-9_-]{0,31})\s+'([\s\S]*?)'/g;
@@ -22,11 +25,16 @@ function bashCommands(events) {
 /** 从 host 事件中提取派发记录：[{key,label,kind,prompt,ts,line}] */
 export function extractDispatches(hostEvents) {
   const out = [];
+  const agentCwd = new Map();
   for (const { ev, cmd } of bashCommands(hostEvents)) {
+    // 只认记录里的 cwd 或当前命令中明确写出的绝对 cd；不执行 shell、不展开变量。
+    const cd = [...cmd.matchAll(/(?:^|[;&]\s*)cd\s+(?:"(\/[^"\n]+)"|'(\/[^'\n]+)'|(\/[^\s;&]+))\s*&&/g)].at(-1);
+    const cwd = cd ? cd[1] || cd[2] || cd[3] : ev.cwd;
+    for (const start of cmd.matchAll(/herdr agent start\s+([a-z][a-z0-9_-]{0,31})/g)) if (cwd) agentCwd.set(start[1], cwd);
     let m;
     HERDR_PROMPT_RE.lastIndex = 0;
     while ((m = HERDR_PROMPT_RE.exec(cmd))) {
-      out.push({ key: m[1], label: m[1], kind: 'herdr', prompt: m[2], ts: ev.ts, line: ev.line });
+      out.push({ key: m[1], label: m[1], kind: 'herdr', prompt: m[2], ts: ev.ts, line: ev.line, cwd: agentCwd.get(m[1]) || cwd });
     }
     HERDR_RE.lastIndex = 0;
     while ((m = HERDR_RE.exec(cmd))) {
@@ -42,7 +50,7 @@ export function extractDispatches(hostEvents) {
       if (b.t === 'tool' && (b.name === 'Agent' || b.name === 'Task')) {
         const inp = b.input || {};
         out.push({
-          key: 'agent-' + String(b.id).slice(-6),
+          key: 'agent-' + String(b.id).slice(-6), toolId: b.id,
           label: inp.description || inp.subagent_type || 'subagent',
           kind: 'agent', prompt: inp.prompt || '', ts: ev.ts, line: ev.line,
           meta: { subagent_type: inp.subagent_type, model: inp.model },
@@ -57,16 +65,25 @@ export function extractDispatches(hostEvents) {
  * 重建 agent 树。
  * 返回 { children: [{key,label,kind,file,sessionId,events,dispatchLine,matched}] }
  */
-export function buildTree(host) {
+export function buildTree(host, sources = {}) {
   const { file: hostFile, sessionId: hostId, events } = host;
+  if (isCodexFile(hostFile)) {
+    // Codex 子 agent 首行记录父线程 id，身份精确，不需要按首句猜
+    const spawnLine = new Map(events.flatMap(e => e.blocks.filter(b => b.t === 'tool' && b.name === 'spawn_agent').map(b => [b.input?.task_name, e.line])));
+    const children = codexChildren(hostId, hostFile, sources.codexRollouts).map(c => {
+      const parsed = parseSession(c.file);
+      return { ...c, dispatchLine: spawnLine.get(c.key.split('.')[0]) || 0, events: parsed.events, signature: parsed.signature, mtime: parsed.mtime };
+    });
+    return { children: children.sort((a, b) => a.dispatchLine - b.dispatchLine), dispatches: [] };
+  }
   const dispatches = extractDispatches(events);
-  const index = indexAllSessions().filter(s => s.sessionId !== hostId).sort((a,b) => a.file.localeCompare(b.file));
-  const cursorDbs = listCursorDbs();   // 惰性读内容：matchCursorDispatch 内按 mtime 短路
+  const index = (sources.index || indexAllSessions()).filter(s => s.sessionId !== hostId).sort((a,b) => a.file.localeCompare(b.file));
+  const cursorDbs = sources.cursorDbs || listCursorDbs();   // 惰性读内容：matchCursorDispatch 内按 mtime 短路
 
   // 每个候选 session 只取一次首条 user 文本（带缓存）
   const firstTextCache = new Map();
-  const firstTextOf = (s) => {
-    if (!firstTextCache.has(s.file)) firstTextCache.set(s.file, norm(firstUserText(s.file)));
+  const firstInfoOf = (s) => {
+    if (!firstTextCache.has(s.file)) firstTextCache.set(s.file, firstUserInfo(s.file));
     return firstTextCache.get(s.file);
   };
 
@@ -80,36 +97,55 @@ export function buildTree(host) {
       byKey.set(entry.key, entry);
       children.push(entry);
     } else {
+      if (entry.file && prev.file && entry.file !== prev.file) {
+        const base = `${entry.key}-${entry.sessionId}`;
+        entry.key = base;
+        if (!byKey.has(base)) { byKey.set(base, entry); children.push(entry); }
+        return;
+      }
       if (entry.file && !prev.file) { Object.assign(prev, { file: entry.file, sessionId: entry.sessionId, matched: entry.matched }); }
       prev.dispatchLines = [...new Set([...(prev.dispatchLines || [prev.dispatchLine]), entry.dispatchLine])];
     }
   };
 
   for (const d of dispatches) {
-    if (!d.prompt) continue; // 只有 start 没有文案的，等同 key 的 prompt 派发来补
+    // 命中文本不是身份。必须同项目、首条消息开头、派发后才开始，且候选唯一。
+    const nativeId = events.flatMap(e => e.blocks).find(b => b.t === 'result' && b.id === d.toolId)?.agentId;
+    const nativeFile = nativeId && /^[A-Za-z0-9_-]+$/.test(nativeId)
+      ? path.join(path.dirname(hostFile), hostId, 'subagents', `agent-${nativeId}.jsonl`) : null;
+    if (nativeFile && fs.existsSync(nativeFile)) {
+      mergeChild({ key: `agent-${nativeId}`, label: d.label, kind: d.kind, meta: d.meta, file: nativeFile, sessionId: nativeId, dispatchLine: d.line, matched: 'exact-agent-id' });
+      usedFiles.add(nativeFile);
+      continue;
+    }
+    if (!d.prompt) continue;
     const head = norm(d.prompt).slice(0, 60);
-    if (head.length < 12) continue;
-    // resume/fork 会把首条消息复制进新文件：可能多个文件都含同一段头。
-    // 全部收集，选最大的（最完整的转写），并加路径序保证确定性。
+    if (head.length < 12) {
+      mergeChild({ key: d.key, label: d.label, kind: d.kind, file: null, sessionId: null, dispatchLine: d.line, matched: 'no-file' });
+      continue;
+    }
     const hits = [];
     for (const s of index) {
       if (usedFiles.has(s.file)) continue;
-      const ft = firstTextOf(s);
-      if (!ft || !ft.includes(head)) continue;
+      if (![host.project, d.cwd].filter(Boolean).some(p => projectKey(p) === projectKey(s.project))) continue;
+      let info; try { info = firstInfoOf(s); } catch { continue; }
+      const ft = norm(info?.text);
+      const at = Date.parse(info?.ts || '') || s.birthtime || s.mtime || 0;
+      const dispatched = Date.parse(d.ts || '') || 0;
+      if (!ft || !dispatched || !at || at < dispatched - 60000 || at > dispatched + 300000) continue;
+      const pos = ft.indexOf(head);
+      if (pos < 0 || pos > 300) continue;
       // 排除本工具自身的分析器会话：它的首条 prompt 内嵌了整棵树的压缩文本，
       // 会包含所有派发头，造成自指误配
       if (ft.startsWith(ANALYZER_PROMPT_HEAD)) continue;
       hits.push(s);
     }
-    hits.sort((a, b) => b.size - a.size || a.file.localeCompare(b.file));
-    let hit = hits[0] || null;
-    let matched = hit ? 'prompt-head' : 'no-file';
-    // claude 未命中 → 试 Cursor 子会话（herdr --kind cursor 落在 ~/.cursor/chats 的 SQLite）
-    let cursorDb = null;
-    if (!hit && d.ts) {
-      cursorDb = matchCursorDispatch(d, cursorDbs);
-      if (cursorDb) { hit = { file: cursorDb.db, sessionId: cursorDb.sid }; matched = 'cursor-transcript'; }
-    }
+    let hit = hits.length === 1 ? hits[0] : null;
+    let matched = hit ? 'prompt-head' : (hits.length > 1 ? 'ambiguous' : 'no-file');
+    // 两种客户端都检查；跨客户端也有两个候选时，不选一个冒充。
+    const cursorDb = matchCursorDispatch({ ...d, projects: [host.project, d.cwd].filter(Boolean) }, cursorDbs.filter(c => !usedFiles.has(c.db)));
+    if (cursorDb?.ambiguous || (cursorDb && hits.length)) { hit = null; matched = 'ambiguous'; }
+    else if (cursorDb) { hit = { file: cursorDb.db, sessionId: cursorDb.sid }; matched = 'cursor-transcript'; }
     if (hit) usedFiles.add(hit.file);
     mergeChild({
       key: d.key, label: d.label, kind: d.kind, meta: d.meta,
@@ -126,7 +162,8 @@ export function buildTree(host) {
   for (const c of children) {
     if (c.file) {
       const parsed = c.file.includes('/.cursor/projects/') ? parseCursorSession(c.file) : parseSession(c.file);
-      c.events = parsed.events.filter(e => !e.side);
+      c.events = parsed.events; // 子会话本身的 sidechain 是真实贡献，不可静默丢弃。
+      c.signature = parsed.signature; c.mtime = parsed.mtime;
     } else {
       c.events = [];
     }
@@ -135,15 +172,3 @@ export function buildTree(host) {
   return { children, dispatches };
 }
 
-/** SendMessage 归属提示（v1：只在 segments 里标注，不做额外解析） */
-export function sendMessages(events) {
-  const out = [];
-  for (const ev of events) {
-    for (const b of ev.blocks) {
-      if (b.t === 'tool' && b.name === 'SendMessage') {
-        out.push({ ts: ev.ts, to: b.input?.to, summary: b.input?.summary || String(b.input?.message || '').slice(0, 80) });
-      }
-    }
-  }
-  return out;
-}

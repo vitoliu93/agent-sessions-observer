@@ -1,107 +1,88 @@
-# agent-observe — Agent Session「需求解决地图」观察台
+# Agent Session 观察台
 
-给一个 Claude Code session ID，把它（连同它派生出的子 agent 会话）重建为一张
-**「目标 → 解决路径 → 验收结果」地图**：LLM 把压缩事件流归纳成六类卡片 + 动词边 +
-每张卡的贡献者署名，浏览器实时渲染，可回放历史状态。
+## 大前提
 
-不是过程监控，而是**按需的会话取证**：回答三个问题——
-1. 需求解决到哪一步了？
-2. 谁（哪个 agent）贡献了什么？
-3. 还差什么才能完成？
+地图要回答：需求解决到哪一步、谁提供了结果、还缺什么证据。派发、等待、挂哨兵不作为业务卡。
 
-设计原则（经 astra 评审的 v2 方案，见 `docs/design/astra-review-v2.md`）：
+## 小前提
 
-- **机制不画**：派发、挂哨兵、等待、收束这类编排动作不建卡，只体现为对应验证卡上的
-  一行「报告 · sentinel」署名。
-- **代理不是地点，是署名**：每张卡 `sig: [{verb, agent}]`，主 agent 转述别人的判断
-  不能改成自己署名。
-- **诚实**：未知就建 gap，失败记录保留，不做完成度百分比。
+输入 Claude Code session ID。读取本机 JSONL 和能明确关联的子会话，由本机模型 CLI 归纳成地图。前端是一个 HTML 文件，原生 JS/CSS/SVG，无运行时第三方依赖。
 
-## 快速开始
+## 结论
 
-零依赖，Node ≥ 18：
+保留目标、解决路径、验证、缺口。先看概览，点卡看全文；模型归纳不是独立核实。
 
-```bash
-node observe.mjs 9161063c                     # session ID 或前缀
-# 打开 http://127.0.0.1:4173
+### 运行
+
+```sh
+node observe.mjs                          # 空启动，在页面添加会话
+node observe.mjs <session-id-or-prefix> --port 4174
 ```
 
-常用参数：
+Node 18+；也可用 Bun。默认监听本机 `127.0.0.1:4173`。已有服务时换端口，不要覆盖或停止它。
 
-```bash
+```sh
 node observe.mjs <id> [<id>…] \
-  [--port 4173] [--interval 60] \
-  [--cli claude|pi|codex] [--provider p] [--model m] \
-  [--budget 400000]
+  --port 4174 --interval 60 --budget 400000 \
+  --cli claude --model haiku
 ```
 
-- `--cli`：压缩用的无头 LLM CLI，默认 `claude`（`claude -p`）。也可用 `pi`
-  （需 provider/key 环境）或 `codex`（`codex exec`，订阅额度独立于 claude，撞限额时换它）。
-- `--interval`：文件变化检测周期（秒）；被观察的 JSONL 有增长才触发重新压缩，
-  增量同步保持卡片 id 稳定。
-- Header 的下拉菜单可随时追加/移除观察者（`POST /api/sessions/add|remove`），
-  多个 session 切换着看。
+- `--interval`：检查输入文件变化的秒数，不是强制重新调用模型。失败后退避 5 秒至 5 分钟，在下一次检查时重试；手动同步可以立即重试。
+- `--budget`：压缩事件流的字符上限，不是 token 上限。各会话保留身份和头尾；短会话剩余额度交给长会话。前一版地图和指令另占输入。
+- `--cli`：支持 `claude`、`pi`、`codex`，也可传自定义可执行文件。模型调用会使用该 CLI 的额度；测试不会调用真实模型。
+- 默认模型为 Claude `haiku`、Codex `gpt-5.6-luna`；`pi` 使用自身配置。可通过参数或 `OBS_CLI`、`OBS_MODEL`、`OBS_PROVIDER` 覆盖。
+- Claude 归纳禁用内置工具、继承的 MCP 和会话落盘；Codex 使用只读模式。自定义 CLI 的权限由使用者配置。
 
-## 它如何工作
+### 地图与阅读
 
+- 五列：目标｜子目标｜修改和问题｜验证｜结论和缺口。目标固定第一列。
+- 概览每列最多三张，保留修改和结论入口；其余显示折叠记录数、待解决风险/缺口数、失败记录数。
+- 标题与摘要最多两行，正文不在卡内堆叠。详情包含全部事实、来源、署名、步骤和直接关系。
+- 选择子目标只看相关路径；归属不明的卡单独可查，不用相似标题猜关系。
+- 连线有箭头。默认只强调主线与未解决问题；选择/悬停显示直接关系。折叠入口上的边代表组内记录，完整关系在抽屉。
+- 参与者显示摘要和可搜索名单；选择参与者时，折叠入口也会提示其贡献。
+- 同版轮询不重建地图。阅读详情、选中卡片或回放历史时，新摘要先提示“点击更新”，不打断阅读。
+- Enter 打开详情，Esc 关闭；live、折叠入口、参与者、关系均支持键盘。
+
+### 历史与失败
+
+每次成功归纳保存完整内存快照：标题、正文、署名、边、live、覆盖范围与来源时间。历史页面和抽屉读取同一快照，不把新正文套在旧状态上。
+
+坏模型输出不会替换上一版地图，也不会消费输入变化。首次分析、手动同步和自动同步统一排队，同一观察者不会重复入队。未知会话返回 404；不回退到其它会话。
+
+**历史只在当前服务进程内保存，重启即丢失。** 旧版没有完整快照时禁用回放，不补造历史。
+
+### 身份与来源边界
+
+- 原生 Agent/Task：优先使用工具结果中的 `agentId` 定位 `session/subagents/agent-*.jsonl`；子会话的 sidechain 事件保留。
+- Herdr：使用首条需求开头、派发时间窗口、记录中的工作目录匹配 Claude 或 Cursor 转写；两个候选即报告歧义。同角色不同会话不合并成一个身份。
+- **文本匹配是关联线索，不是身份的绝对证明。** 缺少记录、复杂 shell、过晚启动、改写首条提示等情况可能无法匹配，显示未定位，不随便选一个。
+- Cursor CLI 支持 `~/.cursor/projects/*/agent-transcripts/*/*.jsonl`；IDE 的 SQLite 聊天库不解析。
+- Codex：会话在 `~/.codex/sessions`（含 `archived_sessions`）。子 agent 按首行 `parent_thread_id` 精确挂载，key 取 `agent_path`（如 `backend_fix`）；审批用 guardian 线程不计入。子 agent 收到的任务正文加密，只能看到它的执行过程和明文回报。Codex id 前 8 位是时间戳，前缀只匹配用户开的主线程，撞前缀时请给更长的前缀。
+- 标题：Claude Code 取 `custom-title`，其次 `ai-title`；Codex 取 `~/.codex/session_index.jsonl` 的 `thread_name`。
+- 署名必须使用输入会话 key；来源引用必须出现在输入片段中。引用存在不代表内容已被独立证实。
+- 事件会压缩、截断；覆盖说明列出缺失与截断。地图不是完整逐条日志替代品。
+- 子会话匹配、卡片 ID 延续和结论质量仍受原始记录及模型影响。不能用卡片“已完成”替代人工或测试验收。
+
+### 输出约定
+
+业务类型：`subgoal/change/risk/verify/concl/gap`，另有唯一 `goal` 和修复过程容器 `group`。
+
+状态：`doing/done/failed/partial/risk/resolved/unknown`。目标未声明有效状态时为 unknown。
+
+卡片含 `id/title/sub/st/facts/ev/sig/steps`；`goalId` 指向子目标 ID。旧 `zone` 仅按唯一精确标题兼容，不作相似匹配。
+
+边仅允许：拆成、采用、妨碍、解决、检查、支持、留下缺口，并校验端点类型；不合规的边丢弃，备注写明条数。整体结构不合法（缺 cards/edges 数组、goal 不合法）时整版拒绝。单张卡类型、标题或 ID 不合法或重复时丢弃该卡，备注写明张数；状态不合法记为未知。署名、步骤执行者不在输入会话中时只移除该项，写进卡片的系统说明（不算事实）。修改、验证、结论引用用户需求原话或模型思考作来源时，该引用被移除。
+
+### 开发验收
+
+```sh
+bun test --timeout 20000 tests/backend-unit.test.mjs tests/backend-http.test.mjs
+OBS_PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
+OBS_BROWSER=/absolute/path/to/chromium \
+bun tests/frontend.mjs
 ```
-~/.claude/projects/<munged-cwd>/<uuid>.jsonl
-   │  parse.mjs      事件流：user/assistant 块，跳过 attachment/snapshot 等 12 类噪音
-   │  tree.mjs       树重建：Bash 里 herdr agent prompt 派发的兄弟会话
-   │                 （prompt 头 60 字匹配 + 同名合并 + 体积择优 + 排除自指），
-   │                 Agent/Task 工具原生子 agent（agent-<id6>）
-   │  segment.mjs    分段压缩成 LLM 事件流（用户回合切分、结果头尾截取、16k/段、总预算）
-   ▼  summarize.mjs  claude/pi/codex -p → 六类卡片 schema JSON（严格 normalizeMap 过滤）
-Observer（observe.mjs）  per-card born / states[] 历史 → 任意历史时刻回放
-   ▼
-web/index.html    五列地图（目标｜子目标｜方案/风险｜验证｜结论/缺口）+ SVG 动词边
-                  分层披露：卡=类型+状态+标题(clamp2)+核心事实(clamp2)+署名摘要+详情，
-                  全文/步骤/关系面板进 480px 抽屉；zone>3 卡自动折叠成
-                  「其余 N 项·M 项未解决」入口（可展开）；边三级显隐（默认主线+≤6 个
-                  未解决标签，选中/hover 显全部直接关系）；live 三格 clamp2 可点开；
-                  参与者摘要+可搜索面板；历史默认收起；列宽/卡高实测，无列内滚动
-```
 
-多 agent 收束：herdr 并行会话与原生 Task 子 agent 都挂在主线的派发点下，
-其产出以「署名」出现在卡片上，而不是画成泳道——地图上只有一条主线。
+浏览器测试依赖仅用于开发，不进入产品。HTTP 测试启动独立临时 HOME 和假模型服务，结束后清理；前端浏览器测试拦截请求，使用 42 卡、16 参与者、52 边样例，不连接用户服务。
 
-## 卡片 schema
-
-| type    | 含义 | 边动词（出） |
-|---------|------|--------------|
-| goal    | 目标（全图 1 张，含 acc 验收数组） | 拆成 |
-| subgoal | 可独立验收的子目标 | 采用 / 检查 |
-| change  | 方案/修改（一句动作 + 一个结果） | 解决 / 检查 |
-| risk    | 风险/障碍（区分 doing 与已 failed） | 妨碍 |
-| verify  | 验证（注明样本范围/被测版本） | 支持 |
-| concl   | 结论（证据不足用 partial） | 留下缺口 |
-| gap     | 缺口（还差哪些证明） | — |
-| group   | 失败→修复→重验 折叠组（steps 数组） | 解决 |
-
-每卡：`sig[{verb,agent}]` 署名、`st`（doing/done/failed/partial/risk/resolved）、
-`zone`（所属子目标分区）、`facts` 证据要点、`ev` 来源。
-LLM 输出经 `normalizeMap` 过滤：非法边、缺题卡片一律丢弃。
-
-## 已知边界（诚实清单）
-
-- **Cursor Agent CLI 子会话已支持**：`herdr --kind cursor` 派发的会话落在
-  `~/.cursor/projects/<munged-cwd>/agent-transcripts/<uuid>/<uuid>.jsonl`，
-  按「prompt 头在前 300 字内 + mtime 时间窗」匹配（转写无 tool_result，结果体现在
-  assistant 文本里）。
-- **Cursor IDE 聊天**（`~/.cursor/chats/*/*/store.db` SQLite）仍不解析——它包含
-  `<user_info>` 等大段注入文本，误配风险高，暂不采信。
-- 压缩质量依赖所选模型；默认 `claude→haiku`、`codex→gpt-5.6-luna`，可用
-  `--cli/--model` 覆盖。haiku 压缩更激进（同会话 ~25 卡 vs 大模型 ~40 卡）。
-- 增量同步假设「同一工作的延续」，LLM 可能重排卡片——id 稳定性靠 prompt 约束 +
-  prev cards 注入，非强保证。
-
-## 设计文档与致谢
-
-- v2 地图方案：`docs/design/astra-review-v2.md`（gpt-6-astra 评审，mechanism-ban、
-  honesty 规则、六类节点/动词边均出自该评审）
-- 早期调研与两版 mock：`docs/design/`（v1 泳道方案已被否决，留档对照）
-
-## Roadmap
-
-- 多 session 对比视图（同一需求两次执行的 diff）
-- 会话内截图/产物关联到卡片 `ev`
+证据边界、未完成项与本轮判断见 `docs/advanced-plans/2026-09-16-observe-product-quality/`；原设计见 `docs/design/astra-review-v2.md`。

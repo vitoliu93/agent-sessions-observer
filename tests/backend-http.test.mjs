@@ -1,0 +1,75 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const root = path.resolve(import.meta.dir, '..');
+const wait = ms => new Promise(r => setTimeout(r, ms));
+async function until(fn, ms = 3000) { const end = Date.now() + ms; while (Date.now() < end) { const v = await fn(); if (v) return v; await wait(30); } throw new Error('timeout'); }
+
+test('HTTP: 空启动、未知 sid=404、去重、失败保留及自动重试、完整快照', { timeout: 15000 }, async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-http-'));
+  const sid = 'session-a';
+  const sessionDir = path.join(tmp, '.claude/projects/p'); fs.mkdirSync(sessionDir, { recursive: true });
+  const session = path.join(sessionDir, `${sid}.jsonl`);
+  fs.writeFileSync(session, JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:00:00Z', message: { content: 'please test' } }) + '\n');
+  const cli = path.join(tmp, 'fake-model.mjs'), count = path.join(tmp, 'count');
+  fs.writeFileSync(cli, `#!/usr/bin/env bun
+import fs from 'node:fs'; const n=(Number(fs.existsSync(process.env.COUNT)&&fs.readFileSync(process.env.COUNT,'utf8'))||0)+1; fs.writeFileSync(process.env.COUNT,String(n)); if(n===3){console.log('{}');process.exit(0);} const fact=n===1?'OLD_FACT':'NEW_FACT'; console.log(JSON.stringify({goal:{id:'GOAL',title:'Goal',sub:'',acc:[],sig:[]},cards:[{id:'S1',type:'subgoal',goalId:'S1',title:'Sub',sub:'',sig:[],st:n===1?'doing':'done',facts:[fact],ev:'模型归纳，未定位原始证据',steps:[]}],edges:[{f:'GOAL',t:'S1',v:'拆成'}],live:{now:fact},note:fact}));`);
+  fs.chmodSync(cli, 0o755);
+  const port = 46000 + Math.floor(Math.random() * 1000);
+  const proc = Bun.spawn(['bun', 'observe.mjs', '--port', String(port), '--interval', '0.1', '--cli', cli], { cwd: root, env: { ...process.env, HOME: tmp, COUNT: count }, stdout: 'pipe', stderr: 'pipe' });
+  try {
+    await until(async () => (await fetch(`http://127.0.0.1:${port}/api/sessions`).catch(() => null))?.ok);
+    let r = await fetch(`http://127.0.0.1:${port}/api/data?sid=missing`); assert.equal(r.status, 404);
+    r = await fetch(`http://127.0.0.1:${port}/api/sessions/add`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: sid }) }); assert.equal(r.status, 200);
+    // 首次已经占用；手动同步不能制造第二个任务。
+    await fetch(`http://127.0.0.1:${port}/api/resync`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: sid }) });
+    const first = await until(async () => { const x = await (await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`)).json(); return x.syncN === 1 && x; });
+    assert.equal(Number(fs.readFileSync(count, 'utf8')), 1);
+    assert.equal(first.history[0].cards[0].facts[0], 'OLD_FACT');
+    await fetch(`http://127.0.0.1:${port}/api/resync`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: sid }) });
+    const second = await until(async () => { const x = await (await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`)).json(); return x.syncN === 2 && x; });
+    assert.equal(second.cards[0].facts[0], 'NEW_FACT');
+    assert.equal(second.history[0].cards[0].facts[0], 'OLD_FACT');
+    assert.equal(second.history[0].goal.st, 'unknown');
+    assert.equal(second.history[0].stamps[0].at, 1);
+    const post = (route, body, headers={}) => fetch(`http://127.0.0.1:${port}${route}`, {method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
+    assert.equal((await post('/api/sessions/add',{id:'session'})).status,200);
+    assert.equal((await (await fetch(`http://127.0.0.1:${port}/api/sessions`)).json()).sessions.length,1);
+    assert.equal((await post('/api/resync',{id:sid},{origin:'https://untrusted.example'})).status,403);
+    assert.equal((await post('/api/resync',{id:'中'.repeat(2000)})).status,413);
+    fs.appendFileSync(session, JSON.stringify({type:'user',timestamp:'2026-01-01T00:01:00Z',message:{content:'new input'}})+'\n');
+    const failed=await until(async()=>{const x=await(await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`)).json();return x.lastError&&x;});
+    assert.equal(failed.syncN,2);assert.equal(failed.cards[0].facts[0],'NEW_FACT');
+    await wait(400);assert.equal(Number(fs.readFileSync(count,'utf8')),3);
+    const recovered=await until(async()=>{const x=await(await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`)).json();return x.syncN===3&&x;},8000);
+    assert.equal(recovered.lastError,null);assert.equal(recovered.history.length,3);
+    assert.equal(recovered.history[0].cards[0].facts[0],'OLD_FACT');
+    const delta=await(await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}&since=2&boot=${recovered.boot}`)).json();
+    assert.deepEqual(delta.history.map(h=>h.at),[3]);assert.equal(delta.historySince,2);
+    // 服务重启（进程标识不同）或客户端序号超前：给完整历史
+    for(const q of ["since=2&boot=old-process",`since=9&boot=${recovered.boot}`]){const full=await(await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}&${q}`)).json();assert.deepEqual(full.history.map(h=>h.at),[1,2,3]);assert.equal(full.historySince,0);}
+    assert.equal((await(await fetch(`http://127.0.0.1:${port}/api/sessions`)).json()).sessions[0].title,"");
+  } finally { proc.kill(); await proc.exited; fs.rmSync(tmp,{recursive:true,force:true}); }
+});
+
+test('HTTP: 模型报提示过长时缩预算重试，stdout 错误进入 lastError', { timeout: 15000 }, async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-http-'));
+  const sid = 'session-long', dir = path.join(tmp, '.claude/projects/p'); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${sid}.jsonl`), Array.from({ length: 200 }, (_, i) => JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:00:00Z', message: { content: `REQ_${i} ${'中'.repeat(900)}` } })).join('\n') + '\n');
+  const cli = path.join(tmp, 'fake-model.mjs'), sizes = path.join(tmp, 'sizes');
+  // claude -p 超长时把错误写到 stdout 并 exit 1
+  fs.writeFileSync(cli, `#!/usr/bin/env bun
+import fs from 'node:fs'; const p=await Bun.stdin.text(); fs.appendFileSync(process.env.SIZES,p.length+'\\n'); if(p.length>60000){console.log('Prompt is too long');process.exit(1);} console.log(JSON.stringify({goal:{id:'GOAL',title:'Goal',sub:'',acc:[],sig:[]},cards:[],edges:[],live:{now:'x'},note:''}));`);
+  fs.chmodSync(cli, 0o755);
+  const port = 47000 + Math.floor(Math.random() * 1000);
+  const proc = Bun.spawn(['bun', 'observe.mjs', sid, '--port', String(port), '--budget', '150000', '--cli', cli], { cwd: root, env: { ...process.env, HOME: tmp, SIZES: sizes }, stdout: 'pipe', stderr: 'pipe' });
+  try {
+    const x = await until(async () => { const r = await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`).catch(() => null); const d = r?.ok && await r.json(); return d?.syncN === 1 && d; }, 10000);
+    const calls = fs.readFileSync(sizes, 'utf8').trim().split('\n').map(Number);
+    assert(calls.length >= 2 && calls.at(-1) <= 60000 && calls[0] > 60000, String(calls));
+    assert.equal(x.lastError, null);
+  } finally { proc.kill(); await proc.exited; fs.rmSync(tmp, { recursive: true, force: true }); }
+});
