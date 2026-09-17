@@ -98,6 +98,6 @@ bun run build && node dist-cli/index.js <session-id>   # 用纯 Node 验证发�
 
 目录：`src/shared` 前后端数据契约；`src/cli` 会话解析、归纳与 HTTP 服务；`src/web` React 页面。发布内容只有 `dist-cli/`（`index.js` 与 `web/`）。
 
-前端浏览器测试默认使用 `~/Library/Caches/ms-playwright/chromium-1155` 下的 Chromium，可用 `OBS_BROWSER` 指定路径。浏览器测试依赖仅用于开发，不进入产品。HTTP 测试启动独立临时 HOME 和假模型服务，结束后清理；前端浏览器测试拦截请求，使用 42 卡、16 参与者、52 边样例，不连接用户服务。
+前端浏览器测试用 `@playwright/test` 驱动（`playwright test` 在 Node 下运行）。浏览器先装一次：`bunx playwright install --only-shell chromium`；也可用 `OBS_BROWSER` 指定本机已有的 Chromium 路径。失败时的截图和 trace 落在 `/tmp/observe-acceptance/frontend`（可用 `OBS_TEST_OUT` 改）。浏览器测试依赖仅用于开发，不进入产品。HTTP 测试启动独立临时 HOME 和假模型服务，结束后清理；前端浏览器测试拦截请求，使用 42 卡、16 参与者、52 边样例，不连接用户服务。
 
 证据边界、未完成项与本轮判断见 `docs/advanced-plans/2026-09-16-observe-product-quality/`；原设计见 `docs/design/astra-review-v2.md`。

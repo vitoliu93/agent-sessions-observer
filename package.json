@@ -6,11 +6,11 @@
     "url": "git+https://github.com/vitoliu93/agent-sessions-observer.git"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@types/bun": "^1.4.2",
     "@types/node": "^22.20.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "playwright-core": "1.49",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^7.0.2"
@@ -35,7 +35,7 @@
     "build": "bun run build:web && bun run build:cli",
     "typecheck": "tsc --noEmit",
     "test": "bun test --timeout 20000 tests/backend-unit.test.ts tests/backend-http.test.ts tests/web-lib.test.ts",
-    "test:web": "bun tests/frontend.ts",
+    "test:web": "playwright test",
     "prepublishOnly": "bun run typecheck && bun run build"
   },
   "type": "module",
