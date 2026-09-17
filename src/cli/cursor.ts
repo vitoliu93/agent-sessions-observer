@@ -1,15 +1,19 @@
-// cursor.mjs — Cursor Agent CLI 子会话解析（herdr --kind cursor 落盘格式）
+// cursor.ts — Cursor Agent CLI 子会话解析（herdr --kind cursor 落盘格式）
 // 位置：~/.cursor/projects/<munged-cwd>/agent-transcripts/<uuid>/<uuid>.jsonl
 // 行格式：{"role":"user"|"assistant","message":{"content":[{type:'text'|'tool_use'|'turn_ended',...}]}}
 // user 文本带 <timestamp>/<user_query> 包裹；无 tool_result（结果体现在 assistant text）。
 import fs from 'node:fs';
 import path from 'node:path';
-import { norm, readTextSnapshot } from './parse.mjs';
-export const projectKey = value => String(value || '').replace(/[^A-Za-z0-9_-]/g, '-').replace(/^-+/, '');
+import { norm, readTextSnapshot, type SessionEvent, type ParsedSession } from './parse.ts';
 
-export function listCursorDbs() {   // 名字保留：tree.mjs 的调用面不变
+export interface CursorDb { db: string; sid: string; project: string; mtime: number; _info?: { text: string; ts: number } | null }
+export interface CursorDispatch { prompt?: string | null; ts?: string | null; project?: string; projects?: string[] }
+
+export const projectKey = (value: unknown): string => String(value || '').replace(/[^A-Za-z0-9_-]/g, '-').replace(/^-+/, '');
+
+export function listCursorDbs(): CursorDb[] {   // 名字保留：tree.ts 的调用面不变
   const root = path.join(process.env.HOME || '', '.cursor/projects');
-  const out = [];
+  const out: CursorDb[] = [];
   if (!fs.existsSync(root)) return out;
   for (const proj of safeReaddir(root)) {
     const tdir = path.join(root, proj, 'agent-transcripts');
@@ -22,9 +26,9 @@ export function listCursorDbs() {   // 名字保留：tree.mjs 的调用面不�
   return out.sort((a, b) => b.mtime - a.mtime);   // 新的在前
 }
 
-function safeReaddir(dir) { try { return fs.readdirSync(dir); } catch { return []; } }
+function safeReaddir(dir: string): string[] { try { return fs.readdirSync(dir); } catch { return []; } }
 
-export function stripCursorWrap(s) {
+export function stripCursorWrap(s: unknown): string {
   return String(s || '')
     .replace(/<timestamp>[\s\S]*?<\/timestamp>/g, '')
     .replace(/<\/?user_query>/g, '')
@@ -34,32 +38,32 @@ export function stripCursorWrap(s) {
 }
 
 /** 首条实质 user 文本（剥掉 timestamp 等包裹） */
-function cursorFirstInfo(file) {
+function cursorFirstInfo(file: string): { text: string; ts: number } | null {
   try {
     const lines = fs.readFileSync(file, 'utf8').split('\n');
     for (const ln of lines) {
       if (!ln.trim()) continue;
-      let o; try { o = JSON.parse(ln); } catch { continue; }
+      let o: any; try { o = JSON.parse(ln); } catch { continue; }
       if (o?.role !== 'user') continue;
       const parts = o.message?.content;
-      const raw = Array.isArray(parts) ? parts.map(p => p?.text || '').join('') : String(parts || '');
+      const raw: string = Array.isArray(parts) ? parts.map(p => p?.text || '').join('') : String(parts || '');
       const t = stripCursorWrap(raw);
       if (t) return { text: t, ts: Date.parse(raw.match(/<timestamp>([\s\S]*?)<\/timestamp>/)?.[1]?.trim() || '') };
     }
   } catch { /* 损坏行/权限 → 空 */ }
   return null;
 }
-export const cursorFirstUser = file => cursorFirstInfo(file)?.text || '';
+export const cursorFirstUser = (file: string): string => cursorFirstInfo(file)?.text || '';
 
 /** 派发 → cursor 转写匹配。
  *  herdr prompt 在首条 user_query 里，前面只有 timestamp 块，所以 head 命中位置应在
  *  首条消息必须在派发前 60s 到后 5min 内；mtime 不能冒充开始时间。 */
-export function matchCursorDispatch(d, dbs) {
+export function matchCursorDispatch(d: CursorDispatch, dbs: CursorDb[]): CursorDb | { ambiguous: true } | null {
   const head = norm(d.prompt || '').slice(0, 60);
   if (!d.ts || head.length < 12) return null;
   const tsMs = Date.parse(d.ts);
   if (!Number.isFinite(tsMs)) return null;
-  const cands = [];
+  const cands: CursorDb[] = [];
   for (const c of dbs) {
     const projects = d.projects || (d.project ? [d.project] : []);
     if (projects.length && !projects.some(p => projectKey(p) === projectKey(c.project))) continue;
@@ -74,18 +78,18 @@ export function matchCursorDispatch(d, dbs) {
 }
 
 /** transcript jsonl → parseSession 兼容事件流（ts 恒 null） */
-export function parseCursorSession(file) {
-  const events = [];
+export function parseCursorSession(file: string): ParsedSession {
+  const events: SessionEvent[] = [];
   const { raw, signature, mtime } = readTextSnapshot(file);
-  const push = ev => { if (ev.text.trim() || ev.blocks.length) events.push({ i: events.length, side: false, uuid: null, ts: null, ...ev }); };
+  const push = (ev: Pick<SessionEvent, 'type' | 'text' | 'blocks' | 'line'>) => { if (ev.text.trim() || ev.blocks.length) events.push({ i: events.length, side: false, uuid: null, ts: null, ...ev }); };
   try {
     for (const [i, ln] of raw.split('\n').entries()) {
       if (!ln.trim()) continue;
-      let o; try { o = JSON.parse(ln); } catch { continue; }
+      let o: any; try { o = JSON.parse(ln); } catch { continue; }
       const role = o?.role;
       if (role !== 'user' && role !== 'assistant') continue;   // turn_ended 等跳过
       const parts = o.message?.content;
-      const ev = { type: role, text: '', blocks: [], line: i + 1 };
+      const ev: Pick<SessionEvent, 'type' | 'text' | 'blocks' | 'line'> = { type: role, text: '', blocks: [], line: i + 1 };
       if (Array.isArray(parts)) for (const p of parts) {
         if (p?.type === 'text') ev.text += (ev.text ? '\n' : '') + (role === 'user' ? stripCursorWrap(p.text) : String(p.text || ''));
         else if (p?.type === 'tool_use') ev.blocks.push({ t: 'tool', name: String(p.name || '?'), input: p.input || {} });

@@ -1,5 +1,6 @@
-// summarize.mjs — LLM 压缩：事件流 → 六类卡片 schema（经 claude -p，零依赖）
+// summarize.ts — LLM 压缩：事件流 → 六类卡片 schema（经 claude -p，零依赖）
 import { spawn } from 'node:child_process';
+import type { Card, CardType, Coverage, Edge, Live, MapResult, Sig, State, Step, Verb } from '../shared/types.ts';
 
 export const ANALYZER_PROMPT_HEAD = '你是「需求解决地图」分析器。';
 export const SCHEMA_DOC = `${ANALYZER_PROMPT_HEAD}输入是一个 coding agent（Claude Code 或 Codex）会话树的压缩事件流（主会话 + 子会话）。
@@ -49,7 +50,7 @@ doing（进行中）| done（已证实/完成）| failed（失败，记录保留
 }
 cards 里不含 goal；edge 的 f/t 引用 GOAL 或 cards 里的 id；zone 与 subgoal 的 title 对应。`;
 
-export function buildPrompt(transcript, prevCards, incrementalNote, coverage) {
+export function buildPrompt(transcript: string, prevCards: { goal: Card | null; cards: Card[]; edges: Edge[] } | null, incrementalNote: string | null, coverage?: Coverage): string {
   const prev = prevCards
     ? `\n## 上一版地图（保持卡 id 稳定；同一工作更新原卡；新事实才加卡；状态按证据推进）\n${JSON.stringify(prevCards)}\n`
     : '';
@@ -58,11 +59,13 @@ export function buildPrompt(transcript, prevCards, incrementalNote, coverage) {
   return `${SCHEMA_DOC}\n${prev}${note}${limit}\n## 会话压缩事件流（共 ${transcript.length} 字符）\n\n${transcript}\n\n现在输出 JSON。`;
 }
 
+export interface RunOptions { cli?: string; model?: string; provider?: string; timeoutMs?: number; cwd?: string; signal?: AbortSignal }
+
 /** 调无头 LLM CLI，返回解析后的 JSON 对象。
  *  cli: 'claude'（默认）| 'pi' | 'codex'——prompt 一律走 stdin，规避大参数限制 */
-export function runClaude(prompt, { cli = 'claude', model, provider, timeoutMs = 600000, cwd = '/tmp', signal } = {}) {
+export function runClaude(prompt: string, { cli = 'claude', model, provider, timeoutMs = 600000, cwd = '/tmp', signal }: RunOptions = {}): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    let args;
+    let args: string[];
     if (cli === 'pi') {
       args = ['-p', '--mode', 'text'];           // 无消息参数时自动读 stdin
       if (provider) args.push('--provider', provider);
@@ -80,8 +83,8 @@ export function runClaude(prompt, { cli = 'claude', model, provider, timeoutMs =
     if (signal?.aborted) return reject(new Error('analysis cancelled'));
     const p = spawn(cli, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd, detached: process.platform !== 'win32' });
     let out = '', err = '', settled = false;
-    const stop = () => { try { process.platform === 'win32' ? p.kill('SIGKILL') : process.kill(-p.pid, 'SIGKILL'); } catch {} };
-    const fail = e => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); stop(); reject(e); };
+    const stop = () => { try { process.platform === 'win32' ? p.kill('SIGKILL') : process.kill(-p.pid!, 'SIGKILL'); } catch {} };
+    const fail = (e: Error) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); stop(); reject(e); };
     const abort = () => fail(new Error('analysis cancelled'));
     const timer = setTimeout(() => fail(new Error(`${cli} timeout`)), timeoutMs);
     signal?.addEventListener('abort', abort, { once: true });
@@ -106,65 +109,68 @@ export function runClaude(prompt, { cli = 'claude', model, provider, timeoutMs =
   });
 }
 
-const TYPES = new Set(['subgoal', 'change', 'risk', 'verify', 'concl', 'gap', 'group']);
-const STATES = new Set(['doing', 'done', 'failed', 'partial', 'risk', 'resolved', 'unknown']);
-const EDGE_RULES = {
+const TYPES = new Set<string>(['subgoal', 'change', 'risk', 'verify', 'concl', 'gap', 'group']);
+const STATES = new Set<string>(['doing', 'done', 'failed', 'partial', 'risk', 'resolved', 'unknown']);
+const EDGE_RULES: Record<string, [string[], string[]]> = {
   '拆成': [['goal'], ['subgoal']], '采用': [['subgoal'], ['change']],
   '妨碍': [['risk'], ['change', 'subgoal']], '解决': [['group', 'change', 'verify', 'concl'], ['risk']],
   '检查': [['subgoal', 'change'], ['verify']], '支持': [['verify'], ['concl']],
   '留下缺口': [['goal', 'subgoal', 'concl'], ['gap']],
 };
-const isString = x => typeof x === 'string';
-const stringArray = x => Array.isArray(x) && x.every(isString);
-function bad(message) { throw new Error(`bad map: ${message}`); }
+const isString = (x: unknown): x is string => typeof x === 'string';
+const stringArray = (x: unknown): x is string[] => Array.isArray(x) && x.every(isString);
+const toState = (x: unknown): State => STATES.has(x as string) ? x as State : 'unknown';
+function bad(message: string): never { throw new Error(`bad map: ${message}`); }
+
+type NormalizedCard = Card & Required<Pick<Card, 'ev' | 'facts' | 'notes' | 'steps' | 'zone' | 'zoneId' | 'goalId'>>;
 
 /** 严格校验 LLM 输出。结构坏图抛错，调用方保留上次成功图；单张坏卡/坏署名/坏连线只丢弃并写明。 */
-export function normalizeMap(map, { transcript, agentKeys } = {}) {
+export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?: string; agentKeys?: string[] } = {}): MapResult & { cards: NormalizedCard[] } {
   if (!map || typeof map !== 'object' || !Array.isArray(map.cards) || !Array.isArray(map.edges)) bad(`cards and edges must be arrays (got keys: ${map && typeof map === 'object' ? Object.keys(map).join(',').slice(0, 120) : typeof map})`);
   const rawGoal = map.goal;
   if (!rawGoal || typeof rawGoal !== 'object' || rawGoal.id !== 'GOAL' || !isString(rawGoal.title) || !rawGoal.title.trim()) bad('invalid goal');
   // 未知署名只丢这一条并在系统说明里写明，不冒认来源，也不因一处错名作废整版地图
-  const normalizeSig = (sig, where, notes) => {
-    sig = Array.isArray(sig) ? sig.filter(x => x && isString(x.verb) && isString(x.agent)) : [];
-    const unknown = agentKeys ? sig.filter(x => !agentKeys.includes(x.agent)) : [];
+  const normalizeSig = (sig: unknown, where: string, notes: string[]): Sig[] => {
+    const list: Sig[] = Array.isArray(sig) ? sig.filter(x => x && isString(x.verb) && isString(x.agent)) : [];
+    const unknown = agentKeys ? list.filter(x => !agentKeys.includes(x.agent)) : [];
     if (unknown.length) notes.push(`署名 ${unknown.map(x => x.agent).join('、')} 不在输入会话中，已移除`);
-    return sig.filter(x => !unknown.includes(x)).map(x => ({ verb: x.verb, agent: x.agent }));
+    return list.filter(x => !unknown.includes(x)).map(x => ({ verb: x.verb, agent: x.agent }));
   };
-  const goalNotes = [];
-  const goal = { id: 'GOAL', type: 'goal', title: rawGoal.title, sub: isString(rawGoal.sub) ? rawGoal.sub : '', acc: Array.isArray(rawGoal.acc) ? rawGoal.acc.filter(isString) : [], sig: normalizeSig(rawGoal.sig, 'goal', goalNotes), st: STATES.has(rawGoal.st) ? rawGoal.st : 'unknown' };
+  const goalNotes: string[] = [];
+  const goal: Card = { id: 'GOAL', type: 'goal', title: rawGoal.title, sub: isString(rawGoal.sub) ? rawGoal.sub : '', acc: Array.isArray(rawGoal.acc) ? rawGoal.acc.filter(isString) : [], sig: normalizeSig(rawGoal.sig, 'goal', goalNotes), st: toState(rawGoal.st) };
   const seen = new Set(['GOAL']);
   // 单张卡的问题只影响这张卡：状态不合法记为 unknown，类型/标题/ID 不合法或重复就丢弃并计数
   let droppedCards = 0;
-  const cards = map.cards.flatMap(raw => {
+  const cards: NormalizedCard[] = map.cards.flatMap((raw: any): NormalizedCard[] => {
     if (!raw || typeof raw !== 'object' || !isString(raw.id) || !/^[A-Za-z0-9_-]{1,100}$/.test(raw.id) || raw.id.startsWith('fold-') || raw.id === 'GOAL' || seen.has(raw.id)
       || !TYPES.has(raw.type) || !isString(raw.title) || !raw.title.trim()) { droppedCards++; return []; }
     seen.add(raw.id);
-    const notes = [];
+    const notes: string[] = [];
     const sig = normalizeSig(raw.sig, raw.id, notes);
-    const steps = (Array.isArray(raw.steps) ? raw.steps : []).filter(x => x && isString(x.title)).map(x => {
-      const st = STATES.has(x.st) ? x.st : 'unknown', who = isString(x.who) ? x.who : '';
+    const steps: Step[] = (Array.isArray(raw.steps) ? raw.steps : []).filter((x: any) => x && isString(x.title)).map((x: any) => {
+      const st = toState(x.st), who = isString(x.who) ? x.who : '';
       if (!agentKeys || !who || agentKeys.includes(who)) return { title: x.title, who, st };
       notes.push(`步骤「${x.title}」的执行者 ${who} 不在输入会话中，已移除`);
       return { title: x.title, who: '', st };
     });
     if (!STATES.has(raw.st)) notes.push(`状态 ${JSON.stringify(raw.st ?? null)} 不合法，记为未知`);
-    return [{ id: raw.id, type: raw.type, st: STATES.has(raw.st) ? raw.st : 'unknown', title: raw.title, sub: isString(raw.sub) ? raw.sub : '',
+    return [{ id: raw.id, type: raw.type as CardType, st: toState(raw.st), title: raw.title, sub: isString(raw.sub) ? raw.sub : '',
       ev: isString(raw.ev) ? raw.ev : '', sig, facts: Array.isArray(raw.facts) ? raw.facts.filter(isString) : [], notes, steps,
       zone: isString(raw.zone) ? raw.zone : '', zoneId: isString(raw.zoneId) ? raw.zoneId : '', goalId: isString(raw.goalId) ? raw.goalId : '' }];
   });
-  const byId = new Map([['GOAL', goal], ...cards.map(c => [c.id, c])]);
+  const byId = new Map<string, Card>([['GOAL', goal], ...cards.map((c): [string, Card] => [c.id, c])]);
   // 连线是模型推断：不合规的只丢弃并计数，不补造、不作废整版
-  const edges = map.edges.filter(e => {
+  const edges: Edge[] = map.edges.filter((e: any) => {
     if (!e || !isString(e.f) || !isString(e.t) || !isString(e.v) || e.f === e.t || !byId.has(e.f) || !byId.has(e.t)) return false;
     const rule = EDGE_RULES[e.v];
-    return rule && rule[0].includes(byId.get(e.f).type) && rule[1].includes(byId.get(e.t).type);
-  }).map(e => ({ f: e.f, t: e.t, v: e.v }));
+    return rule && rule[0].includes(byId.get(e.f)!.type) && rule[1].includes(byId.get(e.t)!.type);
+  }).map((e: any) => ({ f: e.f, t: e.t, v: e.v as Verb }));
   const droppedEdges = map.edges.length - edges.length;
   const subgoals = cards.filter(c => c.type === 'subgoal');
   const notProof = new Set(transcript ? [...transcript.matchAll(/(?:👤 USER:|💭) ?(\[[^\]\n]+:\d+\])/g)].map(m => m[1]) : []);
   for (const c of cards) {
     if (transcript !== undefined) {
-      let refs = c.ev.match(/\[[^\]\n]+:\d+\]/g) || [];
+      let refs: string[] = c.ev.match(/\[[^\]\n]+:\d+\]/g) || [];
       if (refs.some(ref => !transcript.includes(ref))) refs = [];
       if (['change', 'verify', 'concl'].includes(c.type) && refs.some(ref => notProof.has(ref))) {
         refs = refs.filter(ref => !notProof.has(ref));
@@ -180,10 +186,10 @@ export function normalizeMap(map, { transcript, agentKeys } = {}) {
     c.zoneId = exact.length === 1 ? exact[0].id : related.length === 1 ? related[0].id : 'unknown';
     c.goalId = c.zoneId;
   }
-  
+
   // 进展只是摘要：留下文字字段，列表用分号连起来，其余丢掉
   const liveIn = map.live && typeof map.live === 'object' && !Array.isArray(map.live) ? map.live : {};
-  const live = Object.fromEntries(Object.entries(liveIn).map(([k, v]) => [k, isString(v) ? v : stringArray(v) ? v.join('；') : null]).filter(([, v]) => v !== null));
+  const live: Live = Object.fromEntries(Object.entries(liveIn).map(([k, v]) => [k, isString(v) ? v : stringArray(v) ? v.join('；') : null]).filter(([, v]) => v !== null));
   const note = [(isString(map.note) ? map.note : '').replace(/[。；;.\s]+$/, ''), ...goalNotes.map(n => `目标${n}`), droppedCards && `丢弃 ${droppedCards} 张不合规卡片`, droppedEdges && `丢弃 ${droppedEdges} 条不合规连线`].filter(Boolean).join('；');
   return { goal, cards, edges, live: { ...live }, note };
 }

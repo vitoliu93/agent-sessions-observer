@@ -1,19 +1,51 @@
-// parse.mjs — Claude Code / Codex session JSONL 定位与解析（零依赖）
+// parse.ts — Claude Code / Codex session JSONL 定位与解析（零依赖）
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { StringDecoder } from 'node:string_decoder';
-import { isCodexFile, listCodexRollouts, parseCodexSession, readCodexMeta } from './codex.mjs';
+import { isCodexFile, listCodexRollouts, parseCodexSession, readCodexMeta } from './codex.ts';
 
-export function projectsDir() {
+export type Block =
+  | { t: 'text' }
+  | { t: 'think'; x: string }
+  | { t: 'tool'; id?: string; name: string; input: Record<string, any> }
+  | { t: 'result'; id?: string; out: string; isError: boolean; agentId: string | null };
+
+export interface SessionEvent {
+  i: number;
+  line: number;
+  type: 'user' | 'assistant';
+  ts?: string | null;
+  cwd?: string;
+  side: boolean;
+  uuid?: string | null;
+  parent?: string | null;
+  text: string;
+  blocks: Block[];
+}
+
+export interface ParsedSession {
+  events: SessionEvent[];
+  title?: string;
+  meta?: any;
+  bytes?: number;
+  lines?: number;
+  signature: string;
+  mtime: number;
+}
+
+export interface SessionInfo { file: string; project: string; sessionId: string }
+export interface IndexedSession extends SessionInfo { size?: number; mtime?: number; birthtime?: number }
+
+export function projectsDir(): string {
   return path.join(os.homedir(), '.claude', 'projects');
 }
 
 /** 按 sessionId 全名或前缀定位 session 文件 */
-export function findSession(prefix) {
+export function findSession(prefix: string): SessionInfo {
   const dir = projectsDir();
-  const hits = [];
-  let projects; try { projects = fs.readdirSync(dir); } catch { projects = []; }
+  const hits: SessionInfo[] = [];
+  let projects: string[]; try { projects = fs.readdirSync(dir); } catch { projects = []; }
   // Codex id 前 8 位是时间戳，同一时刻的子 agent/审批线程会撞前缀；前缀只匹配用户开的主线程，子线程随主会话观察
   for (const r of listCodexRollouts()) {
     if (!r.sessionId.startsWith(prefix)) continue;
@@ -39,10 +71,10 @@ export function findSession(prefix) {
 }
 
 /** 扫描全部 session 文件（不做全量解析），供子会话匹配 */
-export function indexAllSessions() {
+export function indexAllSessions(): IndexedSession[] {
   const dir = projectsDir();
-  const out = [];
-  let projects; try { projects = fs.readdirSync(dir); } catch { return out; }
+  const out: IndexedSession[] = [];
+  let projects: string[]; try { projects = fs.readdirSync(dir); } catch { return out; }
   for (const proj of projects) {
     const pd = path.join(dir, proj);
     let st; try { st = fs.statSync(pd); } catch { continue; }
@@ -57,7 +89,7 @@ export function indexAllSessions() {
   return out;
 }
 
-function resultText(content) {
+function resultText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     return content.map(x => typeof x === 'string' ? x : (x && x.type === 'text' ? x.text : '')).join(' ');
@@ -66,7 +98,7 @@ function resultText(content) {
 }
 
 /** 解析一个 session 文件为事件数组（tool_result 也归入 user 行） */
-export function readTextSnapshot(file) {
+export function readTextSnapshot(file: string): { raw: string; signature: string; mtime: number } {
   // 会话可能正被追加：只取读到的完整行；签名取读前状态，之后的追加会在下次检查时触发同步
   const before = fs.statSync(file), text = fs.readFileSync(file, 'utf8');
   const cut = text.lastIndexOf('\n') + 1;
@@ -74,23 +106,23 @@ export function readTextSnapshot(file) {
   return { raw, signature: `${file}:${before.size}:${before.mtimeMs}`, mtime: before.mtimeMs };
 }
 
-export function parseSession(file) {
+export function parseSession(file: string): ParsedSession {
   if (isCodexFile(file)) return parseCodexSession(file);
   const { raw, signature, mtime } = readTextSnapshot(file);
-  const events = [];
+  const events: SessionEvent[] = [];
   let customTitle = '', aiTitle = '';
   const lines = raw.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
-    let d; try { d = JSON.parse(line); } catch { continue; }
+    let d: any; try { d = JSON.parse(line); } catch { continue; }
     const t = d.type;
     if (t === 'custom-title' && d.customTitle) customTitle = d.customTitle;
     if (t === 'ai-title' && d.aiTitle) aiTitle = d.aiTitle;
     if (t !== 'user' && t !== 'assistant') continue;
     const msg = d.message || {};
     const content = msg.content;
-    const blocks = [];
+    const blocks: Block[] = [];
     let text = '';
     if (typeof content === 'string') text = content;
     else if (Array.isArray(content)) {
@@ -115,7 +147,7 @@ export function parseSession(file) {
 }
 
 /** 首条真实 user 文本的身份信息。只读前 maxLines 行，不能越界扫描。 */
-export function firstUserInfo(file, maxLines = 400) {
+export function firstUserInfo(file: string, maxLines = 400): { text: string; ts: string | null; line: number } | null {
   const fd = fs.openSync(file, 'r');
   const buf = Buffer.alloc(1024 * 1024);
   const decoder = new StringDecoder('utf8');
@@ -125,11 +157,11 @@ export function firstUserInfo(file, maxLines = 400) {
     while (lineCount < maxLines) {
       const n = fs.readSync(fd, buf, 0, buf.length, read);
       acc += n ? decoder.write(buf.subarray(0, n)) : decoder.end() + '\n'; read += n;
-      const lines = acc.split('\n'); acc = lines.pop();
+      const lines = acc.split('\n'); acc = lines.pop()!;
       for (const line of lines) {
         lineCount++;
         if (lineCount > maxLines) return null;
-        let d; try { d = JSON.parse(line); } catch { continue; }
+        let d: any; try { d = JSON.parse(line); } catch { continue; }
         if (d.type !== 'user' || d.isSidechain) continue;
         const c = d.message?.content;
         if (typeof c === 'string' && c.trim()) return { text: c, ts: d.timestamp || null, line: lineCount };
@@ -146,8 +178,8 @@ export function firstUserInfo(file, maxLines = 400) {
 }
 
 /** 首条真实 user 文本（用于 herdr 派发匹配），只读前 maxLines 行 */
-export function firstUserText(file, maxLines = 400) {
+export function firstUserText(file: string, maxLines = 400): string {
   return firstUserInfo(file, maxLines)?.text || '';
 }
 
-export const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+export const norm = (s: string | null | undefined): string => (s || '').replace(/\s+/g, ' ').trim();

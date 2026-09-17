@@ -1,0 +1,42 @@
+{
+  "name": "agent-sessions-obs",
+  "version": "0.3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vitoliu93/agent-sessions-observer.git"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/node": "^22.20.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "playwright-core": "1.49",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2"
+  },
+  "bin": {
+    "agent-sessions-obs": "dist-cli/index.js"
+  },
+  "description": "Agent Session「需求解决地图」观察台：读取 Claude Code / Codex / Cursor 本地会话，归纳成需求解决地图",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist-cli"
+  ],
+  "keywords": ["claude-code", "codex", "cursor", "agent", "session", "observability"],
+  "license": "MIT",
+  "scripts": {
+    "dev:cli": "bun --watch src/cli/index.ts",
+    "dev:web": "bun build src/web/index.html --outdir dist-cli/web --watch",
+    "build:web": "rm -rf dist-cli/web && bun build src/web/index.html --outdir dist-cli/web --production",
+    "build:cli": "bun build src/cli/index.ts --target=node --format=esm --outfile=dist-cli/index.js --banner='#!/usr/bin/env node'",
+    "build": "bun run build:web && bun run build:cli",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test --timeout 20000 tests/backend-unit.test.ts tests/backend-http.test.ts",
+    "test:web": "bun tests/frontend.ts",
+    "prepublishOnly": "bun run typecheck && bun run build"
+  },
+  "type": "module"
+}

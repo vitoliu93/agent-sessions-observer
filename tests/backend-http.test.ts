@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
 
 const root = path.resolve(import.meta.dir, '..');
-const wait = ms => new Promise(r => setTimeout(r, ms));
-async function until(fn, ms = 3000) { const end = Date.now() + ms; while (Date.now() < end) { const v = await fn(); if (v) return v; await wait(30); } throw new Error('timeout'); }
+const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+async function until<T>(fn: () => Promise<T>, ms = 3000): Promise<T> { const end = Date.now() + ms; while (Date.now() < end) { const v = await fn(); if (v) return v; await wait(30); } throw new Error('timeout'); }
 
 test('HTTP: 空启动、未知 sid=404、去重、失败保留及自动重试、完整快照', { timeout: 15000 }, async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-http-'));
@@ -19,7 +20,7 @@ test('HTTP: 空启动、未知 sid=404、去重、失败保留及自动重试、
 import fs from 'node:fs'; const n=(Number(fs.existsSync(process.env.COUNT)&&fs.readFileSync(process.env.COUNT,'utf8'))||0)+1; fs.writeFileSync(process.env.COUNT,String(n)); if(n===3){console.log('{}');process.exit(0);} const fact=n===1?'OLD_FACT':'NEW_FACT'; console.log(JSON.stringify({goal:{id:'GOAL',title:'Goal',sub:'',acc:[],sig:[]},cards:[{id:'S1',type:'subgoal',goalId:'S1',title:'Sub',sub:'',sig:[],st:n===1?'doing':'done',facts:[fact],ev:'模型归纳，未定位原始证据',steps:[]}],edges:[{f:'GOAL',t:'S1',v:'拆成'}],live:{now:fact},note:fact}));`);
   fs.chmodSync(cli, 0o755);
   const port = 46000 + Math.floor(Math.random() * 1000);
-  const proc = Bun.spawn(['bun', 'observe.mjs', '--port', String(port), '--interval', '0.1', '--cli', cli], { cwd: root, env: { ...process.env, HOME: tmp, COUNT: count }, stdout: 'pipe', stderr: 'pipe' });
+  const proc = Bun.spawn(['bun', 'src/cli/index.ts', '--port', String(port), '--interval', '0.1', '--cli', cli], { cwd: root, env: { ...process.env, HOME: tmp, COUNT: count }, stdout: 'pipe', stderr: 'pipe' });
   try {
     await until(async () => (await fetch(`http://127.0.0.1:${port}/api/sessions`).catch(() => null))?.ok);
     let r = await fetch(`http://127.0.0.1:${port}/api/data?sid=missing`); assert.equal(r.status, 404);
@@ -35,7 +36,7 @@ import fs from 'node:fs'; const n=(Number(fs.existsSync(process.env.COUNT)&&fs.r
     assert.equal(second.history[0].cards[0].facts[0], 'OLD_FACT');
     assert.equal(second.history[0].goal.st, 'unknown');
     assert.equal(second.history[0].stamps[0].at, 1);
-    const post = (route, body, headers={}) => fetch(`http://127.0.0.1:${port}${route}`, {method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
+    const post = (route: string, body: unknown, headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${port}${route}`, {method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
     assert.equal((await post('/api/sessions/add',{id:'session'})).status,200);
     assert.equal((await (await fetch(`http://127.0.0.1:${port}/api/sessions`)).json()).sessions.length,1);
     assert.equal((await post('/api/resync',{id:sid},{origin:'https://untrusted.example'})).status,403);
@@ -48,9 +49,9 @@ import fs from 'node:fs'; const n=(Number(fs.existsSync(process.env.COUNT)&&fs.r
     assert.equal(recovered.lastError,null);assert.equal(recovered.history.length,3);
     assert.equal(recovered.history[0].cards[0].facts[0],'OLD_FACT');
     const delta=await(await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}&since=2&boot=${recovered.boot}`)).json();
-    assert.deepEqual(delta.history.map(h=>h.at),[3]);assert.equal(delta.historySince,2);
+    assert.deepEqual(delta.history.map((h: any)=>h.at),[3]);assert.equal(delta.historySince,2);
     // 服务重启（进程标识不同）或客户端序号超前：给完整历史
-    for(const q of ["since=2&boot=old-process",`since=9&boot=${recovered.boot}`]){const full=await(await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}&${q}`)).json();assert.deepEqual(full.history.map(h=>h.at),[1,2,3]);assert.equal(full.historySince,0);}
+    for(const q of ["since=2&boot=old-process",`since=9&boot=${recovered.boot}`]){const full=await(await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}&${q}`)).json();assert.deepEqual(full.history.map((h: any)=>h.at),[1,2,3]);assert.equal(full.historySince,0);}
     assert.equal((await(await fetch(`http://127.0.0.1:${port}/api/sessions`)).json()).sessions[0].title,"");
   } finally { proc.kill(); await proc.exited; fs.rmSync(tmp,{recursive:true,force:true}); }
 });
@@ -65,11 +66,46 @@ test('HTTP: 模型报提示过长时缩预算重试，stdout 错误进入 lastEr
 import fs from 'node:fs'; const p=await Bun.stdin.text(); fs.appendFileSync(process.env.SIZES,p.length+'\\n'); if(p.length>60000){console.log('Prompt is too long');process.exit(1);} console.log(JSON.stringify({goal:{id:'GOAL',title:'Goal',sub:'',acc:[],sig:[]},cards:[],edges:[],live:{now:'x'},note:''}));`);
   fs.chmodSync(cli, 0o755);
   const port = 47000 + Math.floor(Math.random() * 1000);
-  const proc = Bun.spawn(['bun', 'observe.mjs', sid, '--port', String(port), '--budget', '150000', '--cli', cli], { cwd: root, env: { ...process.env, HOME: tmp, SIZES: sizes }, stdout: 'pipe', stderr: 'pipe' });
+  const proc = Bun.spawn(['bun', 'src/cli/index.ts', sid, '--port', String(port), '--budget', '150000', '--cli', cli], { cwd: root, env: { ...process.env, HOME: tmp, SIZES: sizes }, stdout: 'pipe', stderr: 'pipe' });
   try {
     const x = await until(async () => { const r = await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`).catch(() => null); const d = r?.ok && await r.json(); return d?.syncN === 1 && d; }, 10000);
     const calls = fs.readFileSync(sizes, 'utf8').trim().split('\n').map(Number);
-    assert(calls.length >= 2 && calls.at(-1) <= 60000 && calls[0] > 60000, String(calls));
+    assert(calls.length >= 2 && calls.at(-1)! <= 60000 && calls[0] > 60000, String(calls));
     assert.equal(x.lastError, null);
+  } finally { proc.kill(); await proc.exited; fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+// 原始请求：fetch 会把 /../ 规范化掉，穿越测试必须绕开客户端
+function rawGet(port: number, target: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const s = net.connect(port, '127.0.0.1', () => s.end(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`));
+    let out = ''; s.setEncoding('utf8'); s.on('data', d => { out += d; }); s.on('end', () => resolve(out)); s.on('error', reject);
+  });
+}
+
+test('Node 产物：静态托管、SPA 回退、目录穿越不泄露文件', { timeout: 30000 }, async () => {
+  // 产物打到临时目录，旁边放假 web/，不碰真实前端构建；用 node 跑，同时验证 Node 兼容
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-static-'));
+  const build = Bun.spawnSync(['bun', 'build', 'src/cli/index.ts', '--target=node', '--format=esm', `--outfile=${path.join(tmp, 'index.js')}`], { cwd: root });
+  assert.equal(build.exitCode, 0, build.stderr.toString());
+  fs.writeFileSync(path.join(tmp, 'package.json'), '{"type":"module"}'); // 同发布包：Node 18 不会自动识别 ESM
+  fs.mkdirSync(path.join(tmp, 'web/assets'), { recursive: true });
+  fs.writeFileSync(path.join(tmp, 'web/index.html'), 'INDEX_OK');
+  fs.writeFileSync(path.join(tmp, 'web/assets/app.js'), 'APP_JS');
+  fs.writeFileSync(path.join(tmp, 'SECRET.txt'), 'SECRET');
+  const port = 48000 + Math.floor(Math.random() * 1000);
+  const proc = Bun.spawn([process.env.OBS_NODE || 'node', path.join(tmp, 'index.js'), '--port', String(port)], { env: { ...process.env, HOME: tmp }, stdout: 'pipe', stderr: 'pipe' });
+  try {
+    await until(async () => (await fetch(`http://127.0.0.1:${port}/api/sessions`).catch(() => null))?.ok, 10000);
+    let r = await fetch(`http://127.0.0.1:${port}/`);
+    assert.equal(await r.text(), 'INDEX_OK'); assert.match(r.headers.get('content-type')!, /text\/html/);
+    r = await fetch(`http://127.0.0.1:${port}/assets/app.js`);
+    assert.equal(await r.text(), 'APP_JS'); assert.match(r.headers.get('content-type')!, /javascript/);
+    assert.equal(await (await fetch(`http://127.0.0.1:${port}/some/route`)).text(), 'INDEX_OK');
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/nope`)).status, 404);
+    for (const target of ['/../SECRET.txt', '/..%2fSECRET.txt', '/..%2f..%2fpackage.json', '/%2e%2e/SECRET.txt']) {
+      const res = await rawGet(port, target);
+      assert(!res.includes('SECRET') && !res.includes('"name"'), `${target} leaked: ${res.slice(-80)}`);
+    }
   } finally { proc.kill(); await proc.exited; fs.rmSync(tmp, { recursive: true, force: true }); }
 });

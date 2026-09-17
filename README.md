@@ -6,7 +6,7 @@
 
 ## 小前提
 
-输入 Claude Code session ID。读取本机 JSONL 和能明确关联的子会话，由本机模型 CLI 归纳成地图。前端是一个 HTML 文件，原生 JS/CSS/SVG，无运行时第三方依赖。
+输入 Claude Code / Codex session ID。读取本机 JSONL 和能明确关联的子会话，由本机模型 CLI 归纳成地图。后端是 TypeScript 写的 Node CLI，前端是 React 单页，打包后随 npm 包一起发布，运行时无第三方依赖。
 
 ## 结论
 
@@ -15,14 +15,15 @@
 ### 运行
 
 ```sh
-node observe.mjs                          # 空启动，在页面添加会话
-node observe.mjs <session-id-or-prefix> --port 4174
+npx agent-sessions-obs                       # 空启动，在页面添加会话
+npx agent-sessions-obs <session-id-or-prefix> --port 4174
+bunx agent-sessions-obs <session-id>         # 装了 Bun 也可以这样跑
 ```
 
-Node 18+；也可用 Bun。默认监听本机 `127.0.0.1:4173`。已有服务时换端口，不要覆盖或停止它。
+Node 18+。默认监听本机 `127.0.0.1:4173`。已有服务时换端口，不要覆盖或停止它。
 
 ```sh
-node observe.mjs <id> [<id>…] \
+agent-sessions-obs <id> [<id>…] \
   --port 4174 --interval 60 --budget 400000 \
   --cli claude --model haiku
 ```
@@ -74,15 +75,22 @@ node observe.mjs <id> [<id>…] \
 
 边仅允许：拆成、采用、妨碍、解决、检查、支持、留下缺口，并校验端点类型；不合规的边丢弃，备注写明条数。整体结构不合法（缺 cards/edges 数组、goal 不合法）时整版拒绝。单张卡类型、标题或 ID 不合法或重复时丢弃该卡，备注写明张数；状态不合法记为未知。署名、步骤执行者不在输入会话中时只移除该项，写进卡片的系统说明（不算事实）。修改、验证、结论引用用户需求原话或模型思考作来源时，该引用被移除。
 
-### 开发验收
+### 开发
+
+需要 Bun 1.2+。
 
 ```sh
-bun test --timeout 20000 tests/backend-unit.test.mjs tests/backend-http.test.mjs
-OBS_PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
-OBS_BROWSER=/absolute/path/to/chromium \
-bun tests/frontend.mjs
+bun install
+bun run dev:web              # 终端 1：前端改动后自动重新打包到 dist-cli/web
+bun run dev:cli <session-id> # 终端 2：后端改动后自动重启，托管 dist-cli/web
+bun run typecheck            # TypeScript 严格模式检查
+bun run test                 # 后端单元与 HTTP 测试
+bun run build && bun run test:web   # 打包后跑前端浏览器测试
+bun run build && node dist-cli/index.js <session-id>   # 用纯 Node 验证发布产物
 ```
 
-浏览器测试依赖仅用于开发，不进入产品。HTTP 测试启动独立临时 HOME 和假模型服务，结束后清理；前端浏览器测试拦截请求，使用 42 卡、16 参与者、52 边样例，不连接用户服务。
+目录：`src/shared` 前后端数据契约；`src/cli` 会话解析、归纳与 HTTP 服务；`src/web` React 页面。发布内容只有 `dist-cli/`（`index.js` 与 `web/`）。
+
+前端浏览器测试默认使用 `~/Library/Caches/ms-playwright/chromium-1155` 下的 Chromium，可用 `OBS_BROWSER` 指定路径。浏览器测试依赖仅用于开发，不进入产品。HTTP 测试启动独立临时 HOME 和假模型服务，结束后清理；前端浏览器测试拦截请求，使用 42 卡、16 参与者、52 边样例，不连接用户服务。
 
 证据边界、未完成项与本轮判断见 `docs/advanced-plans/2026-09-16-observe-product-quality/`；原设计见 `docs/design/astra-review-v2.md`。
