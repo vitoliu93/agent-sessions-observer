@@ -17,13 +17,13 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - run: bun run build
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}   # 锁文件变（含 Playwright 升级）才重下浏览器
       - run: bunx playwright install --with-deps --only-shell chromium   # 有缓存时只装系统库
       - run: bun run test:web
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: web-test-output
