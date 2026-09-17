@@ -14,7 +14,6 @@ export default function Card({ c, t, style, hl, out, sel, app: { a } }: Props) {
   return (
     <div className={`card ${type} ${st}${hl ? ' hl' : ''}${out ? ' out' : ''}${sel ? ' sel' : ''}`} id={'c-' + c.id} data-id={c.id} tabIndex={0} style={style}
       onClick={e => {
-        e.stopPropagation();
         const target = e.target as Element;
         if (target.closest('.dtl')) return a.openDrawer(c.id);
         if (target.closest('.branch')) return a.branch(c.id);

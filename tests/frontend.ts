@@ -100,6 +100,7 @@ await test('owned_cards_without_edges_stay_in_focus',async p=>{const d=fixture()
   const ids=await p.locator('.card:not(.out)').evaluateAll(ns=>ns.map(n=>(n as HTMLElement).dataset.id!).sort());
   assert.deepEqual(ids,['GOAL','K10','S3','V10']);
   assert((await p.locator('#dBody .relrow').allTextContents()).some(t=>t.startsWith('← 包含')));assert.deepEqual(state.errors,[]);});
+await test('card_click_closes_open_menus',async p=>{await mount(p);await p.locator('#swBtn').click();assert.equal(await p.locator('#swMenu.open').count(),1);await p.locator('#c-GOAL').click();assert.equal(await p.locator('#swMenu.open').count(),0);await p.locator('#pcAll').click();await p.locator('#c-S1').click();assert.equal(await p.locator('#pcPanel.open').count(),0);assert.equal(await p.locator('#c-S1.sel').count(),1);});
 await test('history_delta_merges_with_held_history',async p=>{const state=await mount(p);const next=structuredClone(state.data!);const snap=structuredClone(next.history[1]);snap.at=3;next.syncN=3;next.updatedAt='n3';next.historySince=2;next.history=[snap];state.data=next;await p.waitForTimeout(5300);await p.locator('#histBtn').click();assert.equal(await p.locator('#hslider').getAttribute('max'),'3');await p.locator('#hslider').fill('1');assert.equal(await p.locator('#c-GOAL h4').textContent(),'旧目标正文');});
 }finally{await browser.close();await fs.writeFile(path.join(out,'results.json'),JSON.stringify(results,null,2));console.log(JSON.stringify(results,null,2));}
 if(results.some(x=>x.status==='FAIL'))process.exitCode=1;
