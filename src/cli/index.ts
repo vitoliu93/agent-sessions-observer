@@ -21,7 +21,7 @@ const HELP = `agent-sessions-obs — Agent Session「需求解决地图」观察
   --port <n>        监听 127.0.0.1 端口（默认 4173）
   --interval <秒>   检查输入文件变化的间隔（默认 60）
   --budget <字符>   压缩事件流的字符上限（默认 400000）
-  --cli <名称>      分析用的模型 CLI：codex | claude | pi（默认 codex，可用 OBS_CLI）
+  --cli <名称>      分析用的模型 CLI：codex | claude | pi（默认按此顺序用本机已安装的第一个，可用 OBS_CLI）
   --model <m>       模型（codex 默认 gpt-5.6-luna，claude 默认 haiku，pi 用自身配置；可用 OBS_MODEL）
   --provider <p>    pi 的 provider（可用 OBS_PROVIDER）
   -h, --help        显示本帮助
@@ -40,7 +40,15 @@ for (let i = 0; i < argv.length; i++) {
 }
 const PORT = +flag('--port', 4173);
 const INTERVAL = +flag('--interval', 60) * 1000;
-const CLI = flag('--cli', process.env.OBS_CLI || 'codex');
+const CLI_CHOICES = ['codex', 'claude', 'pi'];
+/** 命令能否直接运行：带路径就查这个文件，否则逐个查 PATH 目录 */
+function installed(cmd: string): boolean {
+  const dirs = cmd.includes('/') ? [''] : (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  const exts = process.platform === 'win32' ? ['', '.exe', '.cmd'] : [''];
+  return dirs.some(d => exts.some(e => { try { const f = path.join(d, cmd + e); fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } }));
+}
+const ASKED_CLI = argv.includes('--cli') ? flag('--cli', '') : process.env.OBS_CLI || '';
+const CLI = ASKED_CLI || CLI_CHOICES.find(installed) || '';
 const DEFAULT_MODEL: Record<string, string> = { claude: 'haiku', codex: 'gpt-5.6-luna', pi: '' };  // 各 CLI 的默认压缩模型
 const MODEL = flag('--model', process.env.OBS_MODEL || DEFAULT_MODEL[CLI] || '');
 const PROVIDER = flag('--provider', process.env.OBS_PROVIDER || '');
@@ -51,7 +59,13 @@ if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535 || !Number.isFinite(INTE
   console.error('invalid --port / --interval / --budget'); process.exit(2);
 }
 // 自定义可执行文件（带路径）只给测试和高级用法，不写进帮助
-if (!['codex', 'claude', 'pi'].includes(CLI) && !CLI.includes('/')) { console.error(`--cli 只支持 codex | claude | pi，收到 ${CLI}`); process.exit(2); }
+if (!CLI) { console.error('找不到可用的模型 CLI：请先安装 codex、claude 或 pi 其中一个，并确认在终端里能直接运行。'); process.exit(2); }
+if (!CLI_CHOICES.includes(CLI) && !CLI.includes('/')) { console.error(`--cli 只支持 codex | claude | pi，收到 ${CLI}`); process.exit(2); }
+if (!installed(CLI)) {
+  const others = CLI_CHOICES.filter(installed);
+  console.error(`找不到命令 ${CLI}：请先安装，并确认在终端里能直接运行 ${CLI}。` + (others.length ? `本机已安装：${others.join('、')}，可改用 --cli ${others[0]}。` : ''));
+  process.exit(2);
+}
 
 const short = (s: string | null | undefined) => (s || '').slice(0, 8);
 type HttpError = Error & { status?: number };
@@ -326,7 +340,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, '127.0.0.1', () => {
   const url = `http://127.0.0.1:${PORT}`;
   console.log(`观察台: ${url}   sessions: ${ids.map(short).join(', ')}`);
-  console.log(`分析模型：${CLI}${MODEL ? `（${MODEL}）` : ''}`);
+  console.log(`分析模型：${CLI}${MODEL ? `（${MODEL}）` : ''}${!ASKED_CLI && CLI !== CLI_CHOICES[0] ? `（本机找不到 ${CLI_CHOICES.slice(0, CLI_CHOICES.indexOf(CLI)).join('、')}，自动改用 ${CLI}）` : ''}`);
   console.log(ids.length ? '首次分析中，每个 session 约 1-3 分钟，进度每 15 秒打印一次…' : '尚无会话；可在页面添加 session ID。');
   ids.forEach(id => { try { if (!validId(id)) throw new Error('invalid session id'); addSession(id); } catch (e) { console.error((e as Error).message); } });
   setInterval(() => {

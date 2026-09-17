@@ -94,7 +94,7 @@ test('Node 产物：静态托管、SPA 回退、目录穿越不泄露文件', { 
   fs.writeFileSync(path.join(tmp, 'web/assets/app.js'), 'APP_JS');
   fs.writeFileSync(path.join(tmp, 'SECRET.txt'), 'SECRET');
   const port = 48000 + Math.floor(Math.random() * 1000);
-  const proc = Bun.spawn([process.env.OBS_NODE || 'node', path.join(tmp, 'index.js'), '--port', String(port)], { env: { ...process.env, HOME: tmp }, stdout: 'pipe', stderr: 'pipe' });
+  const proc = Bun.spawn([process.env.OBS_NODE || 'node', path.join(tmp, 'index.js'), '--port', String(port), '--cli', '/bin/sh'], { env: { ...process.env, HOME: tmp }, stdout: 'pipe', stderr: 'pipe' });
   try {
     await until(async () => (await fetch(`http://127.0.0.1:${port}/api/sessions`).catch(() => null))?.ok, 10000);
     let r = await fetch(`http://127.0.0.1:${port}/`);
@@ -137,4 +137,25 @@ while (!fs.existsSync(process.env.GATE)) await Bun.sleep(20); process.stdout.wri
     assert.deepEqual(done.goals.map((g: any) => g.id), ['G1', 'G2']);
     assert.deepEqual(done.edges.map((e: any) => e.v), ['接着', '拆成']);
   } finally { proc.kill(); await proc.exited; fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('模型 CLI：没指定时用本机已安装的第一个；指定的没装或都没装，启动即报清楚', { timeout: 15000 }, async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-pick-')), bin = path.join(tmp, 'bin');
+  fs.mkdirSync(bin);
+  const run = (args: string[]) => Bun.spawn([process.execPath, 'src/cli/index.ts', ...args], { cwd: root, env: { HOME: tmp, PATH: bin }, stdout: 'pipe', stderr: 'pipe' });
+  const text = (s: ReadableStream) => new Response(s).text();
+  try {
+    let p = run(['--port', '45999']);
+    assert.equal(await p.exited, 2); assert.match(await text(p.stderr), /找不到可用的模型 CLI/);
+    fs.writeFileSync(path.join(bin, 'claude'), '#!/bin/sh\n'); fs.chmodSync(path.join(bin, 'claude'), 0o755);
+    p = run(['--cli', 'codex', '--port', '45999']);
+    assert.equal(await p.exited, 2); assert.match(await text(p.stderr), /找不到命令 codex.*本机已安装：claude，可改用 --cli claude/);
+    const port = 45000 + Math.floor(Math.random() * 1000);
+    p = run(['--port', String(port)]);
+    const reader = p.stdout.pipeThrough(new TextDecoderStream()).getReader();
+    let out = '';
+    while (!/自动改用/.test(out)) { const { value, done } = await reader.read(); if (done) break; out += value; }
+    assert.match(out, /分析模型：claude（haiku）（本机找不到 codex，自动改用 claude）/);
+    p.kill(); await p.exited;
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });

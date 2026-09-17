@@ -186,7 +186,7 @@ export function runModel(prompt: string, { cli = 'codex', model, provider, timeo
       if (code !== 0 || failure || cli === 'codex') return fail(new Error(`${cli} exit ${code}: ${(failure || err || junk || text).slice(-400)}`)); // claude -p 把错误写到 stdout
       done();
     });
-    p.on('error', fail);
+    p.on('error', (e: NodeJS.ErrnoException) => fail(e.code === 'ENOENT' ? new Error(`找不到命令 ${cli}：请先安装，或用 --cli 换成已安装的 codex / claude / pi`) : e));
     if (cli === 'codex') send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'agent-sessions-obs', title: null, version: '0' }, capabilities: null } });
     else p.stdin.end(prompt);
   });
