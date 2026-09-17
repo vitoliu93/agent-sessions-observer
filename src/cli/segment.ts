@@ -84,7 +84,7 @@ export function segmentSession(events: SegEvent[], label: string, source = '', {
           c.lines.push(`      ↳${evidence} ❌ ${resultBody(b.out).slice(0, 220)}`);
           continue;
         }
-        // Read/Write/Edit/Glob/Grep 等文件类回包对因果无增益，只留一行确认
+        // 回包只保留头尾摘要，已知噪音整条跳过
         const body = resultBody(b.out);
         if (!body) continue;
         c.lines.push(`      ↳${evidence} ${body}`);
@@ -142,9 +142,4 @@ export function buildTranscriptDetailed(hostSession: SegHost, children: SegChild
     text: rendered.map(x => x.text).join('\n'),
     coverage: { truncated, missing: children.filter(c => !c.events?.length).map(c => c.key), note: truncated ? '部分记录被截断；未输入内容不能作为结论，需查原始证据。' : '已输入可读取的压缩片段，不等于完整原文或已核实结论。', sessions: rendered.map(({ text, ...x }): CoverageSession => x) },
   };
-}
-
-/** 兼容旧调用面。需要覆盖范围时使用 buildTranscriptDetailed。 */
-export function buildTranscript(hostSession: SegHost, children: SegChild[], budget = 300000): string {
-  return buildTranscriptDetailed(hostSession, children, budget).text;
 }

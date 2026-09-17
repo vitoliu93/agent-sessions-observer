@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { normalizeMap } from '../src/cli/summarize.ts';
-import { firstUserText } from '../src/cli/parse.ts';
+import { firstUserInfo } from '../src/cli/parse.ts';
 import { buildTranscriptDetailed } from '../src/cli/segment.ts';
 import { buildTree } from '../src/cli/tree.ts';
 
@@ -40,10 +40,10 @@ test('重复连线只留一条并计数；前端保留 ID 不给卡片用；来�
   assert.equal(m.cards[1].ev, '[host:2]'); assert.match(m.cards[1].notes.at(-1)!, /来源 \[host:99\] 不在输入会话中，已移除/);
 });
 
-test('firstUserText 不越过 maxLines', () => {
+test('firstUserInfo 不越过 maxLines', () => {
   const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'observe-')), 'a.jsonl');
   fs.writeFileSync(f, `${Array.from({ length: 400 }, () => JSON.stringify({ type: 'assistant', message: { content: 'x' } })).join('\n')}\n${JSON.stringify({ type: 'user', message: { content: 'USER_ON_401' } })}\n`);
-  assert.equal(firstUserText(f, 400), '');
+  assert.equal(firstUserInfo(f, 400), null);
 });
 
 test('预算保留每个 agent 身份、用户需求头尾与截断说明', () => {
@@ -85,7 +85,7 @@ test('首次消息跨 UTF-8 读块且末尾无换行仍可完整读取', () => {
     const file = path.join(dir, 'u.jsonl');
     const text = 'a'.repeat(1024 * 1024 - 42) + '中文验收';
     fs.writeFileSync(file, JSON.stringify({ type: 'user', message: { content: text } }));
-    assert.equal(firstUserText(file), text);
+    assert.equal(firstUserInfo(file)?.text, text);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -53,7 +53,6 @@ function cursorFirstInfo(file: string): { text: string; ts: number } | null {
   } catch { /* 损坏行/权限 → 空 */ }
   return null;
 }
-export const cursorFirstUser = (file: string): string => cursorFirstInfo(file)?.text || '';
 
 /** 派发 → cursor 转写匹配。
  *  herdr prompt 在首条 user_query 里，前面只有 timestamp 块，所以 head 命中位置应在

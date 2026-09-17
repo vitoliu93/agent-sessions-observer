@@ -261,9 +261,6 @@ function schedule(o: Observer | null): boolean {
   }).finally(() => { o.analyzing = false; o.controller = null; o.draft = null; busy = false; });
   return true;
 }
-function resync(o: Observer) {
-  return schedule(o);
-}
 
 /* ── HTTP ═══════════════════════════════════════ */
 // 发布产物旁边有 web/；从 src/cli 开发运行时读 dist-cli/web
@@ -332,7 +329,7 @@ const server = http.createServer(async (req, res) => {
       if (id !== undefined && !validId(id)) return json(400, { error: 'invalid id' });
       const o = id ? [...observers.values()].find(x => x.sessionId === id || x.prefix === id) : active;
       if (!o) return json(404, { error: 'no observer' });
-      resync(o); // 不 await；队列内异常已经捕获，不能成为未处理 rejection。
+      schedule(o); // 不 await；队列内异常已经捕获，不能成为未处理 rejection。
       return json(200, { ok: true });
     }
     if (req.method === 'GET' && !u.pathname.startsWith('/api/')) return serveStatic(u.pathname, res);
@@ -361,7 +358,7 @@ server.listen(PORT, '127.0.0.1', () => {
   setInterval(() => {
     for (const o of observers.values()) {
       if (o.analyzing || Date.now() < o.retryAt) continue;
-      try { if (o.changedSinceLastSync()) resync(o); }
+      try { if (o.changedSinceLastSync()) schedule(o); }
       catch (e) { console.error(`[${short(o.sessionId || o.prefix)}] check error: ${(e as Error).message || e}`); }
     }
   }, INTERVAL);

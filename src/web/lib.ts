@@ -1,5 +1,5 @@
 // 纯函数：快照取值、状态、分列与归属。不碰 DOM。
-import type { Card, CardType, DataView, Edge, Live, State } from '../shared/types.ts';
+import type { Card, DataView, Edge, Live, State } from '../shared/types.ts';
 
 /** 当前阅读的快照：历史快照叠在最新数据上 */
 export type View = DataView & { at?: number };
@@ -17,13 +17,12 @@ export function atOrBefore<T extends { at?: number }>(xs: readonly T[] | undefin
   return best;
 }
 export const stateAt = (c: Card, t: number): State => atOrBefore(c.states, t)?.s || c.st || 'unknown';
-export const typeOf = (c: Card): CardType => c.type;
 const COL: Record<string, number> = { goal: 0, subgoal: 1, change: 2, risk: 2, group: 2, verify: 3, concl: 4, gap: 4 };
-export const colIdx = (c: Card) => COL[typeOf(c)] ?? 2;
+export const colIdx = (c: Card) => COL[c.type] ?? 2;
 export const isOpen = (c: Card | undefined, t: number) =>
-  !!c && ['risk', 'gap'].includes(typeOf(c)) && !['done', 'resolved'].includes(stateAt(c, t));
+  !!c && ['risk', 'gap'].includes(c.type) && !['done', 'resolved'].includes(stateAt(c, t));
 const priority = (c: Card, t: number) => isOpen(c, t) ? 0 : stateAt(c, t) === 'failed' ? 1 : stateAt(c, t) === 'doing' ? 2
-  : ['verify', 'concl'].includes(typeOf(c)) ? 3 : 4;
+  : ['verify', 'concl'].includes(c.type) ? 3 : 4;
 
 export function snapshot(d: DataView, t: number): View {
   const saved = atOrBefore(d.history, t);

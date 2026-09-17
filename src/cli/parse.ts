@@ -177,9 +177,4 @@ export function firstUserInfo(file: string, maxLines = 400): { text: string; ts:
   return null;
 }
 
-/** 首条真实 user 文本（用于 herdr 派发匹配），只读前 maxLines 行 */
-export function firstUserText(file: string, maxLines = 400): string {
-  return firstUserInfo(file, maxLines)?.text || '';
-}
-
 export const norm = (s: string | null | undefined): string => (s || '').replace(/\s+/g, ' ').trim();

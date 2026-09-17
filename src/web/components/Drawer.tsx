@@ -1,6 +1,6 @@
 /* 抽屉：480px，标题固定，正文独立滚动，含关系面板。关闭时保留上次内容以便滑出。 */
 import type { AppCtx } from '../App.tsx';
-import { colIdx, labels, liveValue, stateAt, typeOf, types } from '../lib.ts';
+import { colIdx, labels, liveValue, stateAt, types } from '../lib.ts';
 
 export default function Drawer({ app: { s, a, view, ready, byId, edges } }: { app: AppCtx }) {
   const id = s.drawerId ?? s.drawerShown, c = id ? byId.get(id) : undefined, t = s.viewTick;
@@ -15,7 +15,7 @@ export default function Drawer({ app: { s, a, view, ready, byId, edges } }: { ap
     const facts = c.facts || [], notes = c.notes || [], steps = c.steps || [], acc = c.acc || [];
     head = <>
       <h3>{c.title}</h3>
-      <div className="sub">{`${types[typeOf(c)] || '记录'} · ${labels[stateAt(c, t)] || '状态未知'} · ${s.follow ? '当前' : '历史快照'} #${t}`}</div>
+      <div className="sub">{`${types[c.type] || '记录'} · ${labels[stateAt(c, t)] || '状态未知'} · ${s.follow ? '当前' : '历史快照'} #${t}`}</div>
     </>;
     body = <>
       <div className="kv"><b>署名</b><span>{(c.sig || []).map(g => `${g.verb}：${g.agent}`).join('；') || '未知'}</span></div>

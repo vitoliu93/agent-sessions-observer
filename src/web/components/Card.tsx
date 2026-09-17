@@ -2,12 +2,12 @@
 import type { CSSProperties } from 'react';
 import type { Card as CardT } from '../../shared/types.ts';
 import type { AppCtx } from '../App.tsx';
-import { colors, labels, stateAt, typeOf, types } from '../lib.ts';
+import { colors, labels, stateAt, types } from '../lib.ts';
 
 interface Props { c: CardT; t: number; style: CSSProperties; hl: boolean; out: boolean; sel: boolean; app: AppCtx }
 
 export default function Card({ c, t, style, hl, out, sel, app: { a } }: Props) {
-  const type = typeOf(c), st = stateAt(c, t), sigs = c.sig || [], facts = c.facts || [], acc = c.acc || [];
+  const type = c.type, st = stateAt(c, t), sigs = c.sig || [], facts = c.facts || [], acc = c.acc || [];
   const fact = c.summary || c.sub || facts[0] || '尚无结果';
   const badge = st === 'done' && ['goal', 'verify', 'concl'].includes(type) ? '已证实' : labels[st] || '状态未知';
   const count = type === 'goal' ? acc.length ? ` · ${acc.length} 项验收` : '' : facts.length ? ` · ${facts.length} 条` : '';

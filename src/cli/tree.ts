@@ -1,4 +1,4 @@
-// tree.ts — agent 树重建：herdr 派生兄弟会话 + Agent(Task) 原生子agent + SendMessage
+// tree.ts — agent 树重建：herdr 派生兄弟会话 + Agent(Task) 原生子agent + Codex 子线程
 import { isCodexFile, codexChildren, type Rollout } from './codex.ts';
 import { parseSession, firstUserInfo, indexAllSessions, norm, type Block, type IndexedSession, type SessionEvent } from './parse.ts';
 import { ANALYZER_PROMPT_HEAD } from './summarize.ts';
