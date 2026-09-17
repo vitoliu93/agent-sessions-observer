@@ -5,7 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Card, Coverage, DataView, Draft, Edge, Live, MapResult, SessionItem, Snapshot, Stamp, AgentSummary } from '../shared/types.ts';
+import type { Card, Coverage, DataView, Draft, Edge, Live, MapResult, SessionItem, Snapshot, Stamp } from '../shared/types.ts';
 import { findSession, parseSession } from './parse.ts';
 import { buildTree, type Child } from './tree.ts';
 import { buildTranscriptDetailed } from './segment.ts';
@@ -79,8 +79,7 @@ class Observer {
   prefix: string; sessionId: string | null = null; title = '';
   host: Host | null = null; tree: { children: Child[] } | null = null;
   syncN = 0; updatedAt: string | null = null; dataReadAt: string | null = null;
-  goals: Card[] = []; cards: Card[] = []; edges: Edge[] = []; live: Live[] = []; note = ''; draft: Draft | null = null;
-  bornCard = new Map<string, number>(); bornEdge = new Map<string, number>();
+  goals: Card[] = []; cards: Card[] = []; edges: Edge[] = []; live: Live = {}; note = ''; draft: Draft | null = null;
   stamps: Stamp[] = []; history: Snapshot[] = []; lastError: string | null = null; analyzing = false;
   filesSnap = '';
   failures = 0; retryAt = 0;
@@ -142,7 +141,7 @@ class Observer {
     // 失败前绝不修改任何可见状态或已消费签名。成功 tick 从 1 开始。
     const tick = this.syncN + 1;
     this.host = host; this.tree = tree;
-    this.applyMap(map, tick);
+    this.applyMap(map);
     this.syncN = tick;
     this.updatedAt = new Date().toISOString();
     this.dataReadAt = newestRead ? new Date(newestRead).toISOString() : this.updatedAt;
@@ -162,35 +161,23 @@ class Observer {
       Object.assign(this.draft, { goals: m.goals, cards: m.cards, edges: m.edges, live: m.live });
     } catch {}
   }
-  applyMap(map: MapResult, tick: number) {
-    this.goals = map.goals; this.note = map.note;
-    const nextLive = map.live && (map.live.now || map.live.known) ? map.live : (this.live[this.live.length - 1] || {});
-    this.live.push({ ...nextLive, at: tick });
-    this.cards = map.cards; this.edges = map.edges;
-    for (const c of [...map.goals, ...map.cards]) {
-      if (!this.bornCard.has(c.id)) this.bornCard.set(c.id, tick);
-    }
-    for (const e of map.edges) {
-      const k = `${e.f}>${e.t}>${e.v}`;
-      if (!this.bornEdge.has(k)) this.bornEdge.set(k, tick);
-    }
+  applyMap(map: MapResult) {
+    this.goals = map.goals; this.cards = map.cards; this.edges = map.edges; this.note = map.note;
+    // 模型这轮没写进展就沿用上一轮的
+    if (map.live && (map.live.now || map.live.known)) this.live = map.live;
   }
   saveSnapshot(tick: number, coverage: Coverage) {
     const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-    const stamp = (c: Card) => ({ ...c, born: this.bornCard.get(c.id), states: [{ at: tick, s: c.st }] });
-    const goals = this.goals.map(stamp), cards = this.cards.map(stamp);
     const snapshot: Snapshot = {
-      at: tick, goals: clone(goals), cards: clone(cards),
-      edges: clone(this.edges.map(e => ({ ...e, born: this.bornEdge.get(`${e.f}>${e.t}>${e.v}`) }))),
-      live: clone(this.live.at(-1)!), note: this.note, agents: agentSummary([...goals, ...cards]),
-      children: clone((this.tree?.children || []).map(c => ({ key: c.key, label: c.label, kind: c.kind, sessionId: c.sessionId, dispatchLine: c.dispatchLine, events: c.events.length, matched: c.matched }))),
+      at: tick, goals: clone(this.goals), cards: clone(this.cards), edges: clone(this.edges), live: clone(this.live), note: this.note,
+      children: (this.tree?.children || []).map(c => ({ key: c.key, label: c.label, kind: c.kind, events: c.events.length, matched: c.matched })),
       stamps: clone(this.stamps.slice(-1)), updatedAt: this.updatedAt, dataReadAt: this.dataReadAt, coverage: clone(coverage),
     };
     this.history.push(Object.freeze(snapshot));
   }
   dataView(since = 0, boot = ''): DataView {
-    const saved = this.history.at(-1) || { goals: [], cards: [], edges: [], live: {}, agents: [], children: [], stamps: [], note: '' };
-    return { sessionId: this.sessionId, prefix: this.prefix, syncN: this.syncN,
+    const saved = this.history.at(-1) || { goals: [], cards: [], edges: [], live: {}, children: [], stamps: [], note: '' };
+    return { sessionId: this.sessionId, syncN: this.syncN,
       updatedAt: this.updatedAt, dataReadAt: this.dataReadAt, lastError: this.lastError,
       analyzing: this.analyzing, draft: this.analyzing ? this.draft : null, ...this.historyAfter(since, boot), ...saved };
   }
@@ -208,16 +195,6 @@ class Observer {
       children: this.tree?.children?.length || 0,
     };
   }
-}
-
-function agentSummary(cards: Card[]): AgentSummary[] {
-  const m = new Map<string, Omit<AgentSummary, 'color'>>();
-  for (const c of cards) for (const g of c.sig || []) {
-    if (!m.has(g.agent)) m.set(g.agent, { key: g.agent, label: g.agent, count: 0, verbs: {} });
-    const a = m.get(g.agent)!; a.count++; a.verbs[g.verb] = (a.verbs[g.verb] || 0) + 1;
-  }
-  const palette = ['#60a5fa', '#34d399', '#fbbf24', '#2dd4bf', '#a78bfa', '#f87171', '#f472b6'];
-  return [...m.values()].map((a, i) => ({ ...a, color: palette[i % palette.length] }));
 }
 
 /* ── 多观察者注册表 + 串行分析队列 ══════════════ */

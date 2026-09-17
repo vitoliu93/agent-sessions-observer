@@ -1,12 +1,11 @@
 /* 顶栏：会话切换/添加/移除、触发同步、数据与摘要时间 */
 import { useRef } from 'react';
 import type { AppCtx } from '../App.tsx';
-import { atOrBefore } from '../lib.ts';
 
 export default function Topbar({ app: { s, a, view, ready } }: { app: AppCtx }) {
   const input = useRef<HTMLInputElement>(null);
   const cur = s.curSid || s.data?.sessionId || null, current = s.sessions.find(x => x.sid === cur);
-  const stamp = ready ? atOrBefore(view!.stamps, s.viewTick) : null;
+  const stamp = ready ? view!.stamps[0] : null;
   const dot = current?.analyzing ? 'work' : current?.lastError ? 'err' : current?.syncN ? 'done' : 'empty';
   return (
     <div className="topbar">

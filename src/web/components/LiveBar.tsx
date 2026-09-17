@@ -3,7 +3,7 @@ import type { AppCtx } from '../App.tsx';
 import { liveValue } from '../lib.ts';
 
 export default function LiveBar({ app: { s, a, view, ready } }: { app: AppCtx }) {
-  const e = ready ? liveValue(view!, s.viewTick) : null;
+  const e = ready ? liveValue(view!) : null;
   const cell = (k: string, id: string, v: string) => (
     <button className="lcell" type="button" onClick={() => a.openDrawer('__LIVE__')}>
       <div className="k">{k}</div><div className="v" id={id}>{v}</div><div className="hint">查看进展全文 →</div>

@@ -22,27 +22,20 @@ export interface Card {
   /** 系统说明（校验时移除的署名/来源等），不算事实 */
   notes?: string[];
   steps?: Step[];
-  summary?: string;
-  zone?: string;
-  zoneId?: string;
+  /** 归属的子目标 ID；后端已把模型的 zone/zoneId 兼容字段折算进来，解析不到为 'unknown' */
   goalId?: string;
-  /** 快照内：首次出现的同步序号 */
-  born?: number;
-  /** 快照内：各同步序号下的状态 */
-  states?: { at: number; s: State }[];
 }
 
-export interface Edge { f: string; t: string; v: Verb; born?: number }
+export interface Edge { f: string; t: string; v: Verb }
 
-export interface Live { now?: string; known?: string; next?: string; nextK?: string; at?: number }
+export interface Live { now?: string; known?: string; next?: string; nextK?: string }
 
 export interface MapResult { goals: Card[]; cards: Card[]; edges: Edge[]; live: Live; note: string }
 
 export interface CoverageSession { key: string; totalChars: number; includedChars: number; truncated: boolean }
 export interface Coverage { truncated: boolean; missing: string[]; note: string; sessions: CoverageSession[] }
 
-export interface AgentSummary { key: string; label: string; count: number; verbs: Record<string, number>; color: string }
-export interface ChildView { key: string; label: string; kind: string; sessionId: string | null; dispatchLine: number; events: number; matched: string }
+export interface ChildView { key: string; label: string; kind: string; events: number; matched: string }
 export interface Stamp { at: number; data: string; summary: string }
 
 /** 一次成功归纳的完整快照；历史回放与抽屉都读它 */
@@ -54,8 +47,8 @@ export interface Snapshot {
   edges: Edge[];
   live: Live;
   note: string;
-  agents: AgentSummary[];
   children: ChildView[];
+  /** 只有本次同步的一条 */
   stamps: Stamp[];
   updatedAt: string | null;
   dataReadAt: string | null;
@@ -77,7 +70,6 @@ export interface Draft {
 export interface DataView extends Omit<Snapshot, 'at' | 'coverage'> {
   coverage?: Coverage;
   sessionId: string | null;
-  prefix: string;
   syncN: number;
   lastError: string | null;
   analyzing: boolean;

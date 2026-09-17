@@ -14,7 +14,7 @@ const HEADS = ['目标 · 验收条件', '子目标', '修改 · 问题', '验�
 const PAD = 24, GAP = 32;
 
 export default function MapView({ app, plan, emph, edges }: { app: AppCtx; plan: Plan; emph: Emph; edges: Edge[] }) {
-  const { s, a, ready, byId } = app, t = s.viewTick;
+  const { s, a, ready, byId } = app;
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapW, setWrapW] = useState(0);
   const [layout, setLayout] = useState({ pos: {} as Record<string, Pos>, height: 0, key: '', n: 0 });
@@ -63,12 +63,12 @@ export default function MapView({ app, plan, emph, edges }: { app: AppCtx; plan:
     return { left: x(i), top: p ? p.y : 100, width: cw, visibility: p ? undefined : 'hidden' as const, transition: placed.current.has(id) ? undefined : 'none' };
   };
   const foldEntry = (i: number, list: CardT[]) => {
-    const failed = list.filter(c => stateAt(c, t) === 'failed').length;
+    const failed = list.filter(c => stateAt(c) === 'failed').length;
     return <button id={'fold-' + i} type="button" style={place('fold-' + i, i)}
       className={`foldentry${emph.active && emph.groups.has('fold-' + i) ? ' hl' : ''}${emph.out && !list.some(c => emph.out!.has(c.id)) ? ' out' : ''}`}
       onClick={() => a.expand(i, list[0].id)}>
       <span className="t1">{`另 ${list.length} 条记录`}</span>
-      <span className="t2"><span className="uns">{`${list.filter(c => isOpen(c, t)).length} 项风险/缺口待解决`}</span>
+      <span className="t2"><span className="uns">{`${list.filter(isOpen).length} 项风险/缺口待解决`}</span>
         {failed ? ` · ${failed} 条失败记录` : ''}</span>
       <span className="go">展开本列 →</span>
     </button>;
@@ -79,12 +79,12 @@ export default function MapView({ app, plan, emph, edges }: { app: AppCtx; plan:
       onClick={e => { if (e.target === wrapRef.current || (e.target as Element).id === 'edges') a.background(); }}>
       {/* 排版一变就重建连线层，让连线等卡片滑到位后再淡入 */}
       <Edges key={layout.n} ready={ready} W={W} H={Math.max(0, layout.height - 2)} edges={edges} byId={byId} pos={layout.pos}
-        cardGroup={plan.cardGroup} emph={emph} t={t} />
+        cardGroup={plan.cardGroup} emph={emph} />
       {ready && plan.cols.map((pool, i) => <Fragment key={i}>
         <div className="colhead" style={{ left: x(i), width: cw }}>
           {HEADS[i]}{s.expanded.has(String(i)) && <> <button data-col={i} onClick={() => a.collapse(i)}>收起</button></>}
         </div>
-        {pool.map(c => <Card key={c.id} c={c} t={t} style={place(c.id, i)} app={app}
+        {pool.map(c => <Card key={c.id} c={c} style={place(c.id, i)} app={app}
           hl={emph.active && emph.hl.has(c.id)} out={!!emph.out && !emph.out.has(c.id)} sel={c.id === s.selectedId} />)}
         {plan.folded.has(i) && foldEntry(i, plan.folded.get(i)!)}
       </Fragment>)}

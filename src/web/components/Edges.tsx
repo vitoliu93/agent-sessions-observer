@@ -6,10 +6,10 @@ import type { Emph, Pos } from './MapView.tsx';
 
 interface Props {
   ready: boolean; W: number; H: number; edges: Edge[]; byId: Map<string, Card>;
-  pos: Record<string, Pos>; cardGroup: Map<string, string>; emph: Emph; t: number;
+  pos: Record<string, Pos>; cardGroup: Map<string, string>; emph: Emph;
 }
 
-export default function Edges({ ready, W, H, edges, byId, pos, cardGroup, emph, t }: Props) {
+export default function Edges({ ready, W, H, edges, byId, pos, cardGroup, emph }: Props) {
   const ref = useRef<SVGSVGElement>(null);
 
   // 标签逐个显示并实测：越界或与卡片/已放标签重叠就隐藏
@@ -47,7 +47,7 @@ export default function Edges({ ready, W, H, edges, byId, pos, cardGroup, emph, 
       `M${ax},${ay}H${exit}V${lane}H${enter}V${by}H${bx}`;
     // 默认只强调主线与未解决问题
     const main = edge.rels.some(e => byId.get(e.f)?.type === 'goal' ||
-      (e.v === '妨碍' && isOpen(byId.get(e.f), t)) || (e.v === '留下缺口' && isOpen(byId.get(e.t), t)));
+      (e.v === '妨碍' && isOpen(byId.get(e.f))) || (e.v === '留下缺口' && isOpen(byId.get(e.t))));
     const hit = emph.active && edge.rels.some(emph.direct);
     const cand = emph.active ? hit : main && defaults++ < 6;
     const label = edge.v + (edge.rels.length > 1 ? ` ×${edge.rels.length}` : '') +

@@ -6,7 +6,7 @@ export default function Drawer({ app: { s, a, view, ready, byId, edges } }: { ap
   const id = s.drawerId ?? s.drawerShown, c = id ? byId.get(id) : undefined, t = s.viewTick;
   let head = null, body = null;
   if (ready && id === '__LIVE__') {
-    const e = liveValue(view!, t);
+    const e = liveValue(view!);
     head = <h3>当前进展全文</h3>;
     body = (['now', 'known', 'next'] as const).map((k, i) =>
       <div key={k}><h4>{['正在做', '已证实', '还差什么'][i]}</h4><p>{e[k] || '未知'}</p></div>);
@@ -15,12 +15,11 @@ export default function Drawer({ app: { s, a, view, ready, byId, edges } }: { ap
     const facts = c.facts || [], notes = c.notes || [], steps = c.steps || [], acc = c.acc || [];
     head = <>
       <h3>{c.title}</h3>
-      <div className="sub">{`${types[c.type] || '记录'} · ${labels[stateAt(c, t)] || '状态未知'} · ${s.follow ? '当前' : '历史快照'} #${t}`}</div>
+      <div className="sub">{`${types[c.type] || '记录'} · ${labels[stateAt(c)] || '状态未知'} · ${s.follow ? '当前' : '历史快照'} #${t}`}</div>
     </>;
     body = <>
       <div className="kv"><b>署名</b><span>{(c.sig || []).map(g => `${g.verb}：${g.agent}`).join('；') || '未知'}</span></div>
-      <p>{c.summary || c.sub || ''}</p>
-      {c.summary && c.sub && c.summary !== c.sub && <p>{c.sub}</p>}
+      <p>{c.sub || ''}</p>
       {/* 草稿里边写在全部卡片之后，没写到时不能显示成 0 */}
       <div className="kv"><b>{s.drafting && !rels.length ? '关系生成中' : `关系 ${rels.length}`}</b></div>
       {rels.map((e, i) => {

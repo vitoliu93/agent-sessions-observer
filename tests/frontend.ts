@@ -92,7 +92,7 @@ await test('focus_chain_then_back_to_full_map',async p=>{const d=fixture();const
   await p.mouse.move(5,5);await p.keyboard.press('Escape');await p.waitForTimeout(700);assert.deepEqual(await ids(),before);assert.equal(await p.locator('.foldentry').count(),folds);
   assert.doesNotMatch((await p.locator('#scope').textContent())!,/聚焦/);assert.deepEqual(state.errors,[]);});
 await test('owned_cards_without_edges_stay_in_focus',async p=>{const d=fixture();
-  const like=(id:string,type:string,goalId:string,title:string)=>({...d.cards.find(c=>c.type===type)!,id,goalId,zoneId:goalId,title});
+  const like=(id:string,type:string,goalId:string,title:string)=>({...d.cards.find(c=>c.type===type)!,id,goalId,title});
   for(const x of [d,...d.history]){x.cards.push(like('S3','subgoal','S3','收尾'),like('V10','verify','S3','核对合并'),like('K10','concl','S3','已收尾'));x.edges.push({f:'GOAL',t:'S3',v:'拆成'},{f:'V10',t:'K10',v:'支持'});}
   const state=await mount(p,d);await p.locator('#branch').selectOption('S3');
   assert.equal(await p.locator('#edges path.implied').count(),1,'只给 V10 补一条虚线，K10 顺着 V10 找得到');

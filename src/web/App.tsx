@@ -203,7 +203,7 @@ export default function App() {
     return () => { clearTimeout(timer); document.removeEventListener('keydown', a.key); document.removeEventListener('click', a.docClick); };
   }, [a]);
 
-  const view = s.data ? snapshot(s.data, s.viewTick) : null, t = s.viewTick;
+  const view = s.data ? snapshot(s.data, s.viewTick) : null;
   const ready = !!(view?.goals?.length && (s.data?.syncN || s.drafting));
   const all = ready ? cardsOf(view) : [], edges: Edge[] = !ready ? [] : s.drafting ? view!.edges || [] : withOwnership(all, view!.edges || []);   // 草稿里边写在最后，没写到前不补虚线
   const byId = new Map(all.map(c => [c.id, c]));
@@ -216,7 +216,7 @@ export default function App() {
     const timer = setTimeout(() => { s.focusId = s.selectedId; bump(); }, 180);
     return () => clearTimeout(timer);
   }, [s.selectedId, s.focusId]);
-  const p = plan(all, edges, s.branchId, s.expanded, t, focusSet);
+  const p = plan(all, edges, s.branchId, s.expanded, focusSet);
   s.branchId = p.branch;
   if (s.drawerId && s.drawerId !== '__LIVE__' && !byId.has(s.drawerId)) { s.drawerId = null; s.room = false; }
 
@@ -245,7 +245,7 @@ export default function App() {
         {all.filter(c => c.type === 'subgoal').map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
         {p.unassigned > 0 && <option value="__unassigned__">{`归属待确认 · ${p.unassigned} 条`}</option>}
       </select></label>
-      <span id="scope">{focusSet ? `聚焦「${byId.get(s.focusId!)!.title}」的前后链路 · ${focusSet.size} 张卡 · 点空白处或按 Esc 回到完整地图` : ready ? `${all.filter(c => c.type === 'goal').length} 个目标 · ${all.filter(c => c.type !== 'goal').length} 条记录 · ${all.filter(c => isOpen(c, t)).length} 项风险/缺口待解决` +
+      <span id="scope">{focusSet ? `聚焦「${byId.get(s.focusId!)!.title}」的前后链路 · ${focusSet.size} 张卡 · 点空白处或按 Esc 回到完整地图` : ready ? `${all.filter(c => c.type === 'goal').length} 个目标 · ${all.filter(c => c.type !== 'goal').length} 条记录 · ${all.filter(isOpen).length} 项风险/缺口待解决` +
         (p.unassigned ? ` · ${p.unassigned} 条归属待确认` : '') : ''}</span>
       <button id="reset" onClick={() => a.reset()}>重置视图</button>
       <button id="pending" hidden={!s.pending} onClick={() => a.takePending()}>{s.pending ? `有新摘要 #${s.pending.syncN} · 点击更新` : ''}</button>

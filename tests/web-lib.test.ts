@@ -11,10 +11,10 @@ const edges: Edge[] = [{ f: 'G1', t: 'S1', v: '拆成' }, { f: 'S1', t: 'C1', v:
 const ids = (p: ReturnType<typeof plan>) => p.cols.flat().map(c => c.id).sort();
 
 test('目标直接留下的缺口有归属：不算待确认，在目标分支里可见，在子目标分支里不出现', () => {
-  assert.equal(plan(all, edges, '', new Set(), 1).unassigned, 0);
-  assert.deepEqual(ids(plan(all, edges, 'G1', new Set(), 1)), ['C1', 'G1', 'K1', 'R1', 'S1', 'V1', 'X']);
-  assert.deepEqual(ids(plan(all, edges, 'S1', new Set(), 1)), ['C1', 'G1', 'K1', 'R1', 'S1', 'V1']);
-  assert.deepEqual(ids(plan(all, edges, '__unassigned__', new Set(), 1)), ['G1', 'G2']);
+  assert.equal(plan(all, edges, '', new Set()).unassigned, 0);
+  assert.deepEqual(ids(plan(all, edges, 'G1', new Set())), ['C1', 'G1', 'K1', 'R1', 'S1', 'V1', 'X']);
+  assert.deepEqual(ids(plan(all, edges, 'S1', new Set())), ['C1', 'G1', 'K1', 'R1', 'S1', 'V1']);
+  assert.deepEqual(ids(plan(all, edges, '__unassigned__', new Set())), ['G1', 'G2']);
 });
 
 test('withOwnership 只按 goalId 补虚线，顺着已有边能找到子目标的不补', () => {

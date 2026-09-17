@@ -206,7 +206,7 @@ const stringArray = (x: unknown): x is string[] => Array.isArray(x) && x.every(i
 const toState = (x: unknown): State => STATES.has(x as string) ? x as State : 'unknown';
 function bad(message: string): never { throw new Error(`bad map: ${message}`); }
 
-type NormalizedCard = Card & Required<Pick<Card, 'ev' | 'facts' | 'notes' | 'steps' | 'zone' | 'zoneId' | 'goalId'>>;
+type NormalizedCard = Card & Required<Pick<Card, 'ev' | 'facts' | 'notes' | 'steps' | 'goalId'>>;
 
 /** 严格校验 LLM 输出。结构坏图抛错，调用方保留上次成功图；单张坏卡/坏署名/坏连线只丢弃并写明。 */
 export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?: string; agentKeys?: string[] } = {}): MapResult & { cards: NormalizedCard[] } {
@@ -221,12 +221,14 @@ export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?:
     return list.filter(x => !unknown.includes(x)).map(x => ({ verb: x.verb, agent: x.agent }));
   };
   const seen = new Set<string>();
+  const hints = new Map<string, { zone: string; zoneId: string }>();   // 模型的旧兼容归属字段，只用于折算 goalId
   // 单张卡的问题只影响这张卡：状态不合法记为 unknown，类型/标题/ID 不合法或重复就丢弃并计数
   let droppedCards = 0;
   const all: NormalizedCard[] = [...rawGoals, ...map.cards].flatMap((raw: any): NormalizedCard[] => {
     if (!raw || typeof raw !== 'object' || !isString(raw.id) || !/^[A-Za-z0-9_-]{1,100}$/.test(raw.id) || /^(fold-|__)/.test(raw.id) || seen.has(raw.id)
       || !TYPES.has(raw.type) || !isString(raw.title) || !raw.title.trim()) { droppedCards++; return []; }
     seen.add(raw.id);
+    hints.set(raw.id, { zone: isString(raw.zone) ? raw.zone : '', zoneId: isString(raw.zoneId) ? raw.zoneId : '' });
     const notes: string[] = [];
     const sig = normalizeSig(raw.sig, notes);
     const steps: Step[] = (Array.isArray(raw.steps) ? raw.steps : []).filter((x: any) => x && isString(x.title)).map((x: any) => {
@@ -238,7 +240,7 @@ export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?:
     if (!STATES.has(raw.st) && raw.type !== 'goal') notes.push(`状态 ${JSON.stringify(raw.st ?? null)} 不合法，记为未知`);
     return [{ id: raw.id, type: raw.type as CardType, st: toState(raw.st), title: raw.title, sub: isString(raw.sub) ? raw.sub : '',
       ev: isString(raw.ev) ? raw.ev : '', sig, facts: Array.isArray(raw.facts) ? raw.facts.filter(isString) : [], notes, steps,
-      zone: isString(raw.zone) ? raw.zone : '', zoneId: isString(raw.zoneId) ? raw.zoneId : '', goalId: isString(raw.goalId) ? raw.goalId : '',
+      goalId: isString(raw.goalId) ? raw.goalId : '',
       ...(raw.type === 'goal' ? { acc: Array.isArray(raw.acc) ? raw.acc.filter(isString) : [] } : {}) }];
   });
   const goals = all.filter(c => c.type === 'goal'), cards = all.filter(c => c.type !== 'goal');
@@ -268,13 +270,13 @@ export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?:
       c.ev = refs.length ? refs.join(' ') : '模型归纳，未定位原始证据';
     }
     if (c.type === 'goal') continue;
-    if (c.type === 'subgoal') { c.zoneId = c.goalId = c.id; continue; }
-    if (subgoals.some(s => s.id === c.goalId)) { c.zoneId = c.goalId; continue; }
-    if (subgoals.some(s => s.id === c.zoneId)) { c.goalId = c.zoneId; continue; }
-    const exact = subgoals.filter(s => s.title === c.zone);
+    if (c.type === 'subgoal') { c.goalId = c.id; continue; }
+    const hint = hints.get(c.id)!;
+    if (subgoals.some(s => s.id === c.goalId)) continue;
+    if (subgoals.some(s => s.id === hint.zoneId)) { c.goalId = hint.zoneId; continue; }
+    const exact = subgoals.filter(s => s.title === hint.zone);
     const related = subgoals.filter(s => edges.some(e => (e.f === s.id && e.t === c.id) || (e.t === s.id && e.f === c.id)));
-    c.zoneId = exact.length === 1 ? exact[0].id : related.length === 1 ? related[0].id : 'unknown';
-    c.goalId = c.zoneId;
+    c.goalId = exact.length === 1 ? exact[0].id : related.length === 1 ? related[0].id : 'unknown';
   }
 
   // 进展只是摘要：留下文字字段，列表用分号连起来，其余丢掉

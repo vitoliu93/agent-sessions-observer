@@ -6,7 +6,7 @@ export default function SigBar({ app: { s, a, view, ready, all } }: { app: AppCt
   const m = new Map<string, { count: number; doing: boolean }>();
   for (const c of all) for (const g of c.sig || []) {
     const x = m.get(g.agent) || { count: 0, doing: false };
-    x.count++; x.doing ||= stateAt(c, s.viewTick) === 'doing';
+    x.count++; x.doing ||= stateAt(c) === 'doing';
     m.set(g.agent, x);
   }
   const entries = [...m].sort((x, y) => Number(y[1].doing) - Number(x[1].doing) || y[1].count - x[1].count);

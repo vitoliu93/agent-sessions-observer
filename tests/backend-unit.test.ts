@@ -27,7 +27,8 @@ test('结构坏图拒绝；坏卡、重复 ID、坏连线只丢弃并计数，�
   assert.equal(kept.edges.length, 2); assert.match(kept.note, /丢弃 3 条/);
   const map = normalizeMap(good());
   assert.equal(map.goals[0].st, 'unknown');
-  assert.equal(map.cards[1].zoneId, 'S1');
+  assert.equal(map.cards[1].goalId, 'S1');   // zone 标题唯一命中折算成 goalId，输出不再带 zone/zoneId
+  assert.equal('zoneId' in map.cards[0], false);
 });
 
 test('重复连线只留一条并计数；前端保留 ID 不给卡片用；来源引用只移除找不到的那条', () => {

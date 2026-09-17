@@ -16,12 +16,13 @@ export function atOrBefore<T extends { at?: number }>(xs: readonly T[] | undefin
   for (const x of xs || []) if (x.at !== undefined && x.at <= t && (!best || x.at >= best.at!)) best = x;
   return best;
 }
-export const stateAt = (c: Card, t: number): State => atOrBefore(c.states, t)?.s || c.st || 'unknown';
+/** 快照里的卡就是那一版的状态，不用再按序号回溯 */
+export const stateAt = (c: Card): State => c.st || 'unknown';
 const COL: Record<string, number> = { goal: 0, subgoal: 1, change: 2, risk: 2, group: 2, verify: 3, concl: 4, gap: 4 };
 export const colIdx = (c: Card) => COL[c.type] ?? 2;
-export const isOpen = (c: Card | undefined, t: number) =>
-  !!c && ['risk', 'gap'].includes(c.type) && !['done', 'resolved'].includes(stateAt(c, t));
-const priority = (c: Card, t: number) => isOpen(c, t) ? 0 : stateAt(c, t) === 'failed' ? 1 : stateAt(c, t) === 'doing' ? 2
+export const isOpen = (c: Card | undefined) =>
+  !!c && ['risk', 'gap'].includes(c.type) && !['done', 'resolved'].includes(stateAt(c));
+const priority = (c: Card) => isOpen(c) ? 0 : stateAt(c) === 'failed' ? 1 : stateAt(c) === 'doing' ? 2
   : ['verify', 'concl'].includes(c.type) ? 3 : 4;
 
 export function snapshot(d: DataView, t: number): View {
@@ -29,18 +30,15 @@ export function snapshot(d: DataView, t: number): View {
   return saved ? { ...d, ...saved, syncN: d.syncN, history: d.history } : d;
 }
 export const cardsOf = (v: View | null): Card[] => v ? [...(v.goals || []), ...v.cards] : [];
-export const liveValue = (v: View, t: number): Live =>
-  Array.isArray(v.live) ? atOrBefore(v.live as Live[], t) || {} : v.live || {};
+export const liveValue = (v: View): Live => v.live || {};
 
-/** 分支只使用明确归属或明确关系，不按标题相似度猜。目标经「拆成」拥有子目标的全部路径。 */
+/** 分支只使用 goalId 或明确关系，不按标题猜。目标经「拆成」拥有子目标的全部路径。 */
 function owners(all: Card[], edges: Edge[]) {
   const sub = all.filter(c => c.type === 'subgoal'), result = new Map<string, Set<string>>();
   // 目标和子目标先登记自己，目标直接留下的缺口才能顺着边找到归属
   for (const c of all) {
     if (c.type === 'goal' || c.type === 'subgoal') { result.set(c.id, new Set([c.id])); continue; }
-    const exact = sub.find(s => s.id === (c.goalId || c.zoneId || c.zone)) ||
-      sub.find(s => s.title === c.zone && sub.filter(x => x.title === c.zone).length === 1);
-    if (exact) result.set(c.id, new Set([exact.id]));
+    if (sub.some(s => s.id === c.goalId)) result.set(c.id, new Set([c.goalId!]));
   }
   for (let i = 0; i < all.length; i++) {
     let changed = false;
@@ -65,7 +63,7 @@ function owners(all: Card[], edges: Edge[]) {
 export type Plan = ReturnType<typeof plan>;
 
 /** 分列、排序、折叠。branch 不存在时回到全局概览；focus 是聚焦链路，只摆链路上的卡且不折叠。 */
-export function plan(all: Card[], edges: Edge[], branch: string, expanded: Set<string>, t: number, focus: Set<string> | null = null) {
+export function plan(all: Card[], edges: Edge[], branch: string, expanded: Set<string>, focus: Set<string> | null = null) {
   const membership = owners(all, edges);
   let list = all;
   if (branch && branch !== '__unassigned__' && !list.some(c => ['goal', 'subgoal'].includes(c.type) && c.id === branch)) branch = '';
@@ -78,7 +76,7 @@ export function plan(all: Card[], edges: Edge[], branch: string, expanded: Set<s
   for (const c of list) cols[colIdx(c)].push(c);
   const cardGroup = new Map<string, string>(), folded = new Map<number, Card[]>();
   cols.forEach((pool, i) => {
-    const ordered = pool.map((c, n) => ({ c, n })).sort((a, b) => priority(a.c, t) - priority(b.c, t) || a.n - b.n).map(x => x.c);
+    const ordered = pool.map((c, n) => ({ c, n })).sort((a, b) => priority(a.c) - priority(b.c) || a.n - b.n).map(x => x.c);
     let shown = focus || expanded.has(String(i)) ? ordered : ordered.slice(0, 3);
     // 概览保留修改和结论入口
     const keep = i === 4 ? ordered.find(c => c.type === 'concl') :
@@ -93,14 +91,14 @@ export function plan(all: Card[], edges: Edge[], branch: string, expanded: Set<s
 }
 
 /**
- * 模型常漏写子目标连到卡片的边，但卡上的 goalId/zoneId 明确写了归属。
+ * 模型常漏写子目标连到卡片的边，但卡上的 goalId 明确写了归属。
  * 顺着已有的边往左找不到自己的子目标时，补一条「子目标 包含 卡片」，画成虚线；只认 ID，不按标题猜。
  */
 export function withOwnership(all: Card[], edges: Edge[]): Edge[] {
   const byId = new Map(all.map(c => [c.id, c])), out = [...edges];
   // 从左往右补：验证补上以后，它支持的结论就能顺着验证找到子目标，不用再补
   for (const c of [...all].sort((x, y) => colIdx(x) - colIdx(y))) {
-    const owner = byId.get(c.goalId || c.zoneId || '');
+    const owner = byId.get(c.goalId || '');
     if (owner?.type === 'subgoal' && colIdx(c) > 1 && !chain(all, out, c.id).has(owner.id)) out.push({ f: owner.id, t: c.id, v: '包含' });
   }
   return out;
