@@ -1,4 +1,4 @@
-// index.ts — Agent Session 观察台：输入 session ID → 需求解决地图（运行时零依赖，Node ≥ 18）
+// index.ts — Agent Session 观察台：输入 session ID → 需求解决地图（依赖已打进产物，Node ≥ 22）
 //   agent-sessions-obs <sessionId> [moreId...] [--port 4173] [--interval 60] [--cli codex|claude|pi] [--provider p] [--model m] [--budget 400000]
 // 支持同时观察多个 session，Header 下拉切换；POST /api/sessions/add 可在 UI 里追加。
 import http from 'node:http';

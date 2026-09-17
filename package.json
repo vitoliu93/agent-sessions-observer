@@ -20,7 +20,7 @@
   },
   "description": "Agent Session「需求解决地图」观察台：读取 Claude Code / Codex / Cursor 本地会话，归纳成需求解决地图",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "files": [
     "dist-cli"
