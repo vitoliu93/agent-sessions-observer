@@ -1,0 +1,30 @@
+# push 到 main 和所有 PR：类型检查、后端测试、打包、浏览器测试
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5   # HTTP 测试里「Node 产物」用例要 node；版本与 publish.yml 一致
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}   # 锁文件变（含 Playwright 升级）才重下浏览器
+      - run: bunx playwright install --with-deps --only-shell chromium   # 有缓存时只装系统库
+      - run: bun run test:web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: web-test-output
+          path: /tmp/observe-acceptance/frontend
