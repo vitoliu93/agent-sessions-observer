@@ -292,6 +292,8 @@ test('会话选择：codex:// 链接转 ID；最近会话含标题、目录，�
   const rollout = (id: string, meta: object, mtime: number) => write(path.join(codexDir, `rollout-2026-09-17T10-00-00-${id}.jsonl`), [{ type: 'session_meta', payload: { id, cwd: '/w/codex', ...meta } }], mtime);
   const main = '01a0a985-9682-7031-91fc-1fad66020d86', child = '01a0a985-aaaa-7031-91fc-1fad66020d86';
   rollout(main, { thread_source: 'user' }, 2000); rollout(child, { thread_source: 'subagent' }, 4000);
+  write(path.join(claudeDir, 'tmp1.jsonl'), [{ type: 'user', cwd: '/private/tmp', message: { content: 'AI 派生的一次性任务' } }], 5000);
+  rollout('01a0a985-bbbb-7031-91fc-1fad66020d86', { thread_source: 'user', cwd: '/tmp/x' }, 5000);
   fs.writeFileSync(path.join(home, '.codex/session_index.jsonl'), JSON.stringify({ id: main, thread_name: 'Codex 线程' }) + '\n');
   process.env.HOME = home;
   try {
@@ -299,5 +301,8 @@ test('会话选择：codex:// 链接转 ID；最近会话含标题、目录，�
     assert.deepEqual(list.map(s => [s.source, s.id, s.title, s.cwd]), [
       ['claude', 'aaaa', '用户改名', '/w/app'], ['codex', main, 'Codex 线程', '/w/codex'], ['claude', 'bbbb', '没有标题时用首条需求', '/w']]);
     assert.deepEqual(list.filter(s => matches(s, 'codex 线程')).map(s => s.id), [main]);
+    const { formatRow, textWidth } = await import('../src/cli/pick.ts');
+    const long = { ...list[0], title: '字体识别技能合并与性能优化'.repeat(8), cwd: '/Users/x/' + '很长的目录/'.repeat(10) };
+    for (const cols of [60, 100, 237]) for (const s of [...list, long]) assert.equal(textWidth(formatRow(s, cols, '/Users/x')), cols - 4, `cols=${cols}`);
   } finally { process.env.HOME = old; fs.rmSync(home, { recursive: true, force: true }); }
 });

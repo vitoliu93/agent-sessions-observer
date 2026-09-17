@@ -35,10 +35,19 @@ function claudeInfo(file: string): { title: string; cwd: string } | null {
   return { title: first, cwd };
 }
 
+/** 临时目录里的会话多是脚本或 AI 派生的一次性任务，不列出 */
+const TEMP_DIRS = ['/tmp', '/private/tmp', '/var/folders', '/private/var/folders', os.tmpdir()];
+export const isTempDir = (cwd: string) => TEMP_DIRS.some(d => cwd === d || cwd.startsWith(d + '/'));
+
 /** 最近的 Claude Code 与 Codex 主会话，按最后修改时间倒序；每种最多读 limit 个文件 */
 export function listRecentSessions(limit = 80): RecentSession[] {
-  const claude = indexAllSessions().sort((a, b) => (b.mtime || 0) - (a.mtime || 0)).slice(0, limit)
-    .flatMap((s): RecentSession[] => { const info = claudeInfo(s.file); return info ? [{ id: s.sessionId, source: 'claude', mtime: s.mtime || 0, ...info }] : []; });
+  const claude: RecentSession[] = [];
+  // ponytail: 临时目录会话可能很多，最多翻 limit*4 个文件凑够 limit 个
+  for (const s of indexAllSessions().sort((a, b) => (b.mtime || 0) - (a.mtime || 0)).slice(0, limit * 4)) {
+    if (claude.length >= limit) break;
+    const info = claudeInfo(s.file);
+    if (info && !isTempDir(info.cwd)) claude.push({ id: s.sessionId, source: 'claude', mtime: s.mtime || 0, ...info });
+  }
 
   const titles = new Map<string, string>();
   try {
@@ -52,22 +61,30 @@ export function listRecentSessions(limit = 80): RecentSession[] {
   for (const r of rollouts) {
     if (codex.length >= limit) break;
     const meta = readCodexMeta(r.file);
-    if (!meta || (meta.thread_source && meta.thread_source !== 'user')) continue;   // 子 agent、审批线程随主会话观察
+    if (!meta || (meta.thread_source && meta.thread_source !== 'user') || isTempDir(meta.cwd || '')) continue;   // 子 agent、审批线程随主会话观察
     codex.push({ id: r.sessionId, source: 'codex', title: titles.get(r.sessionId) || '', cwd: meta.cwd || '', mtime: r.mtime });
   }
   return [...claude, ...codex].sort((a, b) => b.mtime - a.mtime);
 }
 
-/** 显示宽度：中日韩全角字符占两格 */
+/** 显示宽度：中日韩全角字符占两格。ponytail: 只认常见全角区段，emoji 等少见字符按一格算，靠行尾留白和关闭自动换行兜底 */
 const WIDE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/;
+const charWidth = (ch: string) => WIDE.test(ch) ? 2 : 1;
+export const textWidth = (s: string) => [...s].reduce((w, ch) => w + charWidth(ch), 0);
 function fit(s: string, width: number): string {
+  const over = textWidth(s) > width, max = over ? width - 2 : width;
   let out = '', w = 0;
-  for (const ch of s) {
-    const cw = WIDE.test(ch) ? 2 : 1;
-    if (w + cw > width) return out.slice(0, -1) + '…';
-    out += ch; w += cw;
-  }
-  return out + ' '.repeat(width - w);
+  for (const ch of s) { if (w + charWidth(ch) > max) break; out += ch; w += charWidth(ch); }
+  return out + (over ? '..' : '') + ' '.repeat(Math.max(0, max - w));
+}
+
+/** 一行列表：前缀 2 格 + 时间 11 + 来源 6 + 标题 + 目录 + ID 8，列间 2 格；总宽比终端少 2 格，避免折行 */
+export function formatRow(s: RecentSession, cols: number, home = os.homedir()): string {
+  const d = new Date(s.mtime), pad = (n: number) => String(n).padStart(2, '0');
+  const when = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const room = Math.max(20, cols - 2 - (2 + 11 + 2 + 6 + 2 + 2 + 2 + 8));
+  const cwdW = Math.min(36, Math.floor(room * 0.4)), titleW = room - cwdW;
+  return `${when}  ${s.source.padEnd(6)}  ${fit(s.title || '（无标题）', titleW)}  ${fit(s.cwd.replace(home, '~'), cwdW)}  ${s.id.slice(0, 8).padEnd(8)}`;
 }
 
 export function matches(s: RecentSession, query: string): boolean {
@@ -83,25 +100,22 @@ export function pickSession(sessions: RecentSession[]): Promise<string | null> {
   return new Promise(resolve => {
     const draw = () => {
       const list = sessions.filter(s => matches(s, query));
-      const cols = stdout.columns || 100, rows = Math.max(5, (stdout.rows || 24) - 4);
+      const cols = stdout.columns || 100, rows = Math.max(3, (stdout.rows || 24) - 3);
       index = Math.min(index, Math.max(0, list.length - 1));
       if (index < top) top = index;
       if (index >= top + rows) top = index - rows + 1;
-      const titleW = Math.max(16, Math.floor((cols - 34) * 0.6)), cwdW = Math.max(10, cols - 34 - titleW);
-      const lines = [`选择要观察的会话  ↑↓ 选择 · 输入文字筛选 · 回车确认 · Esc 退出  （共 ${list.length} 个）`, `筛选：${query}`];
+      const lines = [fit(`选择要观察的会话（共 ${list.length} 个）  ↑↓ 选择 · 输入文字筛选 · 回车确认 · Esc 退出`, cols - 2), `筛选：${query}`];
       list.slice(top, top + rows).forEach((s, i) => {
-        const d = new Date(s.mtime), pad = (n: number) => String(n).padStart(2, '0');
-        const when = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-        const row = `${when}  ${s.source.padEnd(6)}  ${fit(s.title || '（无标题）', titleW)}  ${fit(s.cwd.replace(home, '~'), cwdW)}  ${s.id.slice(0, 8)}`;
+        const row = formatRow(s, cols);
         lines.push(top + i === index ? `\x1b[7m❯ ${row}\x1b[0m` : `  ${row}`);
       });
       if (!list.length) lines.push('  没有匹配的会话');
-      stdout.write('\x1b[H\x1b[2J' + lines.join('\n'));
-      return list;
+      // 每行清到行尾；最后一行不换行，防止屏幕滚动
+      stdout.write('\x1b[H\x1b[2J' + lines.map(l => l + '\x1b[K').join('\r\n'));
     };
     const done = (id: string | null) => {
-      stdin.off('keypress', onKey); stdin.setRawMode(false); stdin.pause();
-      stdout.write('\x1b[?25h\x1b[?1049l');
+      stdin.off('keypress', onKey); stdout.off('resize', draw); stdin.setRawMode(false); stdin.pause();
+      stdout.write('\x1b[?7h\x1b[?25h\x1b[?1049l');
       resolve(id);
     };
     const onKey = (str: string | undefined, key: readline.Key = {}) => {
@@ -109,6 +123,8 @@ export function pickSession(sessions: RecentSession[]): Promise<string | null> {
       if (key.name === 'return') { const s = sessions.filter(x => matches(x, query))[index]; return s ? done(s.id) : undefined; }
       if (key.name === 'up') index = Math.max(0, index - 1);
       else if (key.name === 'down') index++;
+      else if (key.name === 'pageup') index = Math.max(0, index - Math.max(3, (stdout.rows || 24) - 3));
+      else if (key.name === 'pagedown') index += Math.max(3, (stdout.rows || 24) - 3);
       else if (key.name === 'backspace') { query = query.slice(0, -1); index = top = 0; }
       else if (str && !key.ctrl && !key.meta && str >= ' ') { query += str; index = top = 0; }
       draw();
@@ -116,7 +132,9 @@ export function pickSession(sessions: RecentSession[]): Promise<string | null> {
     readline.emitKeypressEvents(stdin);
     stdin.setRawMode(true); stdin.resume();
     stdin.on('keypress', onKey);
-    stdout.write('\x1b[?1049h\x1b[?25l');
+    stdout.on('resize', draw);
+    // 备用屏幕 + 隐藏光标 + 关闭自动折行
+    stdout.write('\x1b[?1049h\x1b[?25l\x1b[?7l');
     draw();
   });
 }
