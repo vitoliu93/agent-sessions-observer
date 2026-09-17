@@ -84,7 +84,7 @@ agent-sessions-obs <id> [<id>…] \
 
 ### 开发
 
-需要 Bun 1.2+。
+需要 Bun 1.2+；浏览器测试由 Playwright 在 Node 下运行，需要 Node 20+（发布产物仍支持 Node 18）。
 
 ```sh
 bun install
