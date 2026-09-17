@@ -36,11 +36,12 @@ export const liveValue = (v: View, t: number): Live =>
 /** 分支只使用明确归属或明确关系，不按标题相似度猜。目标经「拆成」拥有子目标的全部路径。 */
 function owners(all: Card[], edges: Edge[]) {
   const sub = all.filter(c => c.type === 'subgoal'), result = new Map<string, Set<string>>();
+  // 目标和子目标先登记自己，目标直接留下的缺口才能顺着边找到归属
   for (const c of all) {
+    if (c.type === 'goal' || c.type === 'subgoal') { result.set(c.id, new Set([c.id])); continue; }
     const exact = sub.find(s => s.id === (c.goalId || c.zoneId || c.zone)) ||
       sub.find(s => s.title === c.zone && sub.filter(x => x.title === c.zone).length === 1);
     if (exact) result.set(c.id, new Set([exact.id]));
-    if (c.type === 'subgoal') result.set(c.id, new Set([c.id]));
   }
   for (let i = 0; i < all.length; i++) {
     let changed = false;
@@ -59,7 +60,6 @@ function owners(all: Card[], edges: Edge[]) {
     if (e.v !== '拆成') continue;
     for (const set of result.values()) if (set.has(e.t)) set.add(e.f);
   }
-  for (const c of all) if (c.type === 'goal') result.set(c.id, new Set([c.id]));
   return result;
 }
 
