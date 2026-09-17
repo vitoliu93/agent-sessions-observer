@@ -30,6 +30,16 @@ test('结构坏图拒绝；坏卡、重复 ID、坏连线只丢弃并计数，�
   assert.equal(map.cards[1].zoneId, 'S1');
 });
 
+test('重复连线只留一条并计数；前端保留 ID 不给卡片用；来源引用只移除找不到的那条', () => {
+  const x = good(); x.edges.push({ f: 'S1', t: 'C1', v: '采用' }); x.cards.push({ ...x.cards[1], id: '__LIVE__' }, { ...x.cards[1], id: '__unassigned__' });
+  x.cards[1].ev = '[host:2] [host:99]';
+  const m = normalizeMap(x, { transcript: '💬 [host:2] 已跑完' });
+  assert.deepEqual(m.edges.map(e => `${e.f}>${e.t}>${e.v}`), ['GOAL>S1>拆成', 'S1>C1>采用']);
+  assert.deepEqual(m.cards.map(c => c.id), ['S1', 'C1']);
+  assert.match(m.note, /丢弃 2 张.*丢弃 1 条/);
+  assert.equal(m.cards[1].ev, '[host:2]'); assert.match(m.cards[1].notes.at(-1)!, /来源 \[host:99\] 不在输入会话中，已移除/);
+});
+
 test('firstUserText 不越过 maxLines', () => {
   const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'observe-')), 'a.jsonl');
   fs.writeFileSync(f, `${Array.from({ length: 400 }, () => JSON.stringify({ type: 'assistant', message: { content: 'x' } })).join('\n')}\n${JSON.stringify({ type: 'user', message: { content: 'USER_ON_401' } })}\n`);

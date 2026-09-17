@@ -224,7 +224,7 @@ export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?:
   // 单张卡的问题只影响这张卡：状态不合法记为 unknown，类型/标题/ID 不合法或重复就丢弃并计数
   let droppedCards = 0;
   const all: NormalizedCard[] = [...rawGoals, ...map.cards].flatMap((raw: any): NormalizedCard[] => {
-    if (!raw || typeof raw !== 'object' || !isString(raw.id) || !/^[A-Za-z0-9_-]{1,100}$/.test(raw.id) || raw.id.startsWith('fold-') || seen.has(raw.id)
+    if (!raw || typeof raw !== 'object' || !isString(raw.id) || !/^[A-Za-z0-9_-]{1,100}$/.test(raw.id) || /^(fold-|__)/.test(raw.id) || seen.has(raw.id)
       || !TYPES.has(raw.type) || !isString(raw.title) || !raw.title.trim()) { droppedCards++; return []; }
     seen.add(raw.id);
     const notes: string[] = [];
@@ -244,11 +244,14 @@ export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?:
   const goals = all.filter(c => c.type === 'goal'), cards = all.filter(c => c.type !== 'goal');
   if (!goals.length) bad('no valid goal');
   const byId = new Map<string, Card>(all.map((c): [string, Card] => [c.id, c]));
-  // 连线是模型推断：不合规的只丢弃并计数，不补造、不作废整版
+  // 连线是模型推断：不合规或重复的只丢弃并计数，不补造、不作废整版
+  const seenEdge = new Set<string>();
   const edges: Edge[] = map.edges.filter((e: any) => {
     if (!e || !isString(e.f) || !isString(e.t) || !isString(e.v) || e.f === e.t || !byId.has(e.f) || !byId.has(e.t)) return false;
-    const rule = EDGE_RULES[e.v];
-    return rule && rule[0].includes(byId.get(e.f)!.type) && rule[1].includes(byId.get(e.t)!.type);
+    const rule = EDGE_RULES[e.v], key = `${e.f}>${e.t}>${e.v}`;
+    if (!rule || !rule[0].includes(byId.get(e.f)!.type) || !rule[1].includes(byId.get(e.t)!.type) || seenEdge.has(key)) return false;
+    seenEdge.add(key);
+    return true;
   }).map((e: any) => ({ f: e.f, t: e.t, v: e.v as Verb }));
   const droppedEdges = map.edges.length - edges.length;
   const subgoals = cards.filter(c => c.type === 'subgoal');
@@ -256,7 +259,8 @@ export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?:
   for (const c of all) {
     if (transcript !== undefined) {
       let refs: string[] = c.ev.match(/\[[^\]\n]+:\d+\]/g) || [];
-      if (refs.some(ref => !transcript.includes(ref))) refs = [];
+      const missing = refs.filter(ref => !transcript.includes(ref));
+      if (missing.length) { refs = refs.filter(ref => !missing.includes(ref)); c.notes.push(`来源 ${missing.join('、')} 不在输入会话中，已移除`); }
       if (['change', 'verify', 'concl'].includes(c.type) && refs.some(ref => notProof.has(ref))) {
         refs = refs.filter(ref => !notProof.has(ref));
         c.notes.push('来源中的用户需求原话或模型思考不能证明结果，已移除');
