@@ -65,8 +65,8 @@ function owners(all: Card[], edges: Edge[]) {
 
 export type Plan = ReturnType<typeof plan>;
 
-/** 分列、排序、折叠。branch 不存在时回到全局概览。 */
-export function plan(all: Card[], edges: Edge[], branch: string, expanded: Set<string>, t: number) {
+/** 分列、排序、折叠。branch 不存在时回到全局概览；focus 是聚焦链路，只摆链路上的卡且不折叠。 */
+export function plan(all: Card[], edges: Edge[], branch: string, expanded: Set<string>, t: number, focus: Set<string> | null = null) {
   const membership = owners(all, edges);
   let list = all;
   if (branch && branch !== '__unassigned__' && !list.some(c => ['goal', 'subgoal'].includes(c.type) && c.id === branch)) branch = '';
@@ -74,12 +74,13 @@ export function plan(all: Card[], edges: Edge[], branch: string, expanded: Set<s
   const owner = membership.get(branch);
   if (branch) list = list.filter(c => branch === '__unassigned__' ? c.type === 'goal' || !membership.get(c.id)?.size
     : membership.get(c.id)?.has(branch) || (c.type === 'goal' && !!owner?.has(c.id)));
+  if (focus) list = list.filter(c => focus.has(c.id));
   const cols: Card[][] = Array.from({ length: 5 }, () => []);
   for (const c of list) cols[colIdx(c)].push(c);
   const cardGroup = new Map<string, string>(), folded = new Map<number, Card[]>();
   cols.forEach((pool, i) => {
     const ordered = pool.map((c, n) => ({ c, n })).sort((a, b) => priority(a.c, t) - priority(b.c, t) || a.n - b.n).map(x => x.c);
-    let shown = expanded.has(String(i)) ? ordered : ordered.slice(0, 3);
+    let shown = focus || expanded.has(String(i)) ? ordered : ordered.slice(0, 3);
     // 概览保留修改和结论入口
     const keep = i === 4 ? ordered.find(c => c.type === 'concl') :
       i === 2 ? ordered.find(c => ['change', 'group'].includes(c.type)) : undefined;
@@ -90,4 +91,30 @@ export function plan(all: Card[], edges: Edge[], branch: string, expanded: Set<s
   });
   const unassigned = all.filter(c => c.type !== 'goal' && !membership.get(c.id)?.size).length;
   return { branch, cols, folded, cardGroup, unassigned };
+}
+
+/**
+ * 选中卡的前后链路。地图从左到右是 目标 → 子目标 → 修改/问题 → 验证 → 结论/缺口，
+ * 所以「前面」沿列号不增的关系往左找，「后面」沿列号不减的关系往右找，不管边的箭头方向。
+ * 目标之间的接着/推翻只算选中卡自己的直接关系，不顺着展开别的目标。
+ * ponytail: 同列可以互相走（修改 ↔ 问题），共用一个问题的兄弟修改也会被带进来；嫌多再按边方向收紧
+ */
+export function chain(all: Card[], edges: Edge[], id: string): Set<string> {
+  const byId = new Map(all.map(c => [c.id, c])), result = new Set([id]);
+  if (!byId.has(id)) return result;
+  for (const dir of [-1, 1]) {
+    const seen = new Set([id]), queue = [id];
+    while (queue.length) {
+      const cur = queue.shift()!, col = colIdx(byId.get(cur)!);
+      for (const e of edges) {
+        const next = e.f === cur ? e.t : e.t === cur ? e.f : '', card = byId.get(next);
+        if (!card || seen.has(next) || (colIdx(card) - col) * dir < 0) continue;
+        const goals = col === 0 && colIdx(card) === 0;
+        if (goals && cur !== id) continue;
+        result.add(next); seen.add(next);
+        if (!goals) queue.push(next);
+      }
+    }
+  }
+  return result;
 }

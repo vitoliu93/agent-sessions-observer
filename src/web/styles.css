@@ -114,6 +114,12 @@ svg.edges path{transition:opacity .2s,stroke .2s}
 .focusmode .card:not(.hl){border-color:#303745;background:#12151c}
 .focusmode svg.edges path[data-edge]:not(.hl){opacity:.05}
 .focusmode svg.edges text:not(.hl){opacity:0}
+/* 聚焦链路：链路外的卡先淡出，留下的卡滑到新位置，新露出的卡原地淡入，连线等卡片到位后再淡入 */
+.wrap{overflow-y:hidden;transition:height .32s cubic-bezier(.2,.7,.2,1)}
+.card,.foldentry{transition:top .32s cubic-bezier(.2,.7,.2,1),opacity .18s,border-color .2s,background-color .2s;animation:fadein .28s ease-out}
+.card.out,.foldentry.out{opacity:0;pointer-events:none}
+svg.edges{animation:fadein .24s .22s both}
+@keyframes fadein{from{opacity:0}}
 
 /* ── 历史：默认收起 ── */
 .hist{display:none;align-items:center;gap:14px;margin:12px 20px 0;padding:10px 16px;border:1px solid var(--line);border-radius:11px;background:var(--panel);font-size:12px;color:var(--muted)}

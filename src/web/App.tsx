@@ -2,7 +2,7 @@
    轮询与异步请求要读最新状态，所以状态放在一个可变 store 里，改完调 bump() 重绘。 */
 import { useEffect, useReducer, useRef } from 'react';
 import type { Card, DataView, Edge, SessionItem } from '../shared/types.ts';
-import { cardsOf, isOpen, plan, snapshot, type View } from './lib.ts';
+import { cardsOf, chain, isOpen, plan, snapshot, type View } from './lib.ts';
 import Topbar from './components/Topbar.tsx';
 import LiveBar from './components/LiveBar.tsx';
 import SigBar from './components/SigBar.tsx';
@@ -16,6 +16,8 @@ export interface Store {
   selectedId: string | null; hoveredId: string | null; selAgent: string | null;
   drawerId: string | null; drawerShown: string | null; opener: Element | null; room: boolean;
   branchId: string; expanded: Set<string>;
+  /** 地图按哪张卡的链路排版；选中后稍晚跟上，让链路外的卡先淡出 */
+  focusId: string | null;
   requestN: number; lastKey: string;
   /** 正在显示分析中的草稿（还没有第一版正式地图）；fast：分析中每秒拉一次 */
   drafting: boolean; fast: boolean;
@@ -30,7 +32,7 @@ export interface AppCtx { s: Store; a: Actions; view: View | null; ready: boolea
 const newStore = (): Store => ({
   data: null, pending: null, sessions: [], curSid: null, viewTick: 0, follow: true,
   selectedId: null, hoveredId: null, selAgent: null, drawerId: null, drawerShown: null, opener: null, room: false,
-  branchId: '', expanded: new Set(), requestN: 0, lastKey: '', drafting: false, fast: false,
+  branchId: '', expanded: new Set(), focusId: null, requestN: 0, lastKey: '', drafting: false, fast: false,
   notice: '', stat: '加载中…', resyncDisabled: false, boot: { show: false, msg: '正在读取会话…' },
   swOpen: false, pcOpen: false, pcQuery: '', histOpen: false, after: [],
 });
@@ -128,7 +130,7 @@ function createActions(s: Store, bump: () => void) {
   function openDrawer(id: string) {
     if (!s.data) return tell('尚无摘要可查看。');
     s.opener = document.activeElement; s.drawerId = s.drawerShown = id;
-    if (id !== '__LIVE__') { s.selectedId = id; s.room = true; }
+    if (id !== '__LIVE__') { s.selectedId = s.focusId = id; s.room = true; }
     s.after.push(() => { $('dClose')?.focus(); if (id !== '__LIVE__') reveal(id); });
     bump();
   }
@@ -164,7 +166,7 @@ function createActions(s: Store, bump: () => void) {
     // 关系跳转：回到全局、展开目标所在列，再滚开抽屉
     jump(id: string, col: number) {
       s.notice = ''; s.branchId = ''; s.expanded.add(String(col));
-      s.selectedId = s.drawerId = s.drawerShown = id; s.room = true;
+      s.selectedId = s.focusId = s.drawerId = s.drawerShown = id; s.room = true;
       s.after.push(() => { reveal(id); $('dClose')?.focus({ preventScroll: true }); });
       render();
     },
@@ -204,17 +206,27 @@ export default function App() {
   const ready = !!(view?.goals?.length && (s.data?.syncN || s.drafting));
   const all = ready ? cardsOf(view) : [], edges: Edge[] = ready ? view!.edges || [] : [];
   const byId = new Map(all.map(c => [c.id, c]));
-  const p = plan(all, edges, s.branchId, s.expanded, t);
+  // 聚焦：选中卡后链路外的卡先淡出，180ms 后再把链路排紧；取消选中立刻回到完整地图
+  if (!s.selectedId || !byId.has(s.selectedId)) s.focusId = null;
+  const focusSet = s.focusId && byId.has(s.focusId) ? chain(all, edges, s.focusId) : null;
+  const chainIds = !s.selectedId || !byId.has(s.selectedId) ? null : s.selectedId === s.focusId ? focusSet : chain(all, edges, s.selectedId);
+  useEffect(() => {
+    if (!s.selectedId || s.selectedId === s.focusId) return;
+    const timer = setTimeout(() => { s.focusId = s.selectedId; bump(); }, 180);
+    return () => clearTimeout(timer);
+  }, [s.selectedId, s.focusId]);
+  const p = plan(all, edges, s.branchId, s.expanded, t, focusSet);
   s.branchId = p.branch;
   if (s.drawerId && s.drawerId !== '__LIVE__' && !byId.has(s.drawerId)) { s.drawerId = null; s.room = false; }
 
-  // 高亮：悬停/选中看直接关系；选参与者看其署名卡
-  const focus = s.hoveredId || s.selectedId, active = !!(focus || s.selAgent);
-  const ids = new Set(focus ? [focus] : all.filter(c => (c.sig || []).some(g => g.agent === s.selAgent)).map(c => c.id));
-  const direct = (e: Edge) => focus ? e.f === focus || e.t === focus : ids.has(e.f) || ids.has(e.t);
+  // 高亮：选中看整条链路；没选中时悬停看直接关系；选参与者看其署名卡。
+  // 聚焦时不理会悬停：卡片重排后会滑到鼠标下，跟着变高亮会乱
+  const hover = chainIds ? null : s.hoveredId, active = !!(hover || chainIds || s.selAgent);
+  const ids = hover ? new Set([hover]) : chainIds || new Set(all.filter(c => (c.sig || []).some(g => g.agent === s.selAgent)).map(c => c.id));
+  const direct = (e: Edge) => hover ? e.f === hover || e.t === hover : chainIds ? chainIds.has(e.f) && chainIds.has(e.t) : ids.has(e.f) || ids.has(e.t);
   const hl = new Set(ids);
-  if (focus) for (const e of edges) if (direct(e)) { hl.add(e.f); hl.add(e.t); }
-  const emph: Emph = { active, hl, direct, groups: new Set([...hl].map(id => p.cardGroup.get(id)).filter((g): g is string => !!g)) };
+  if (hover) for (const e of edges) if (direct(e)) { hl.add(e.f); hl.add(e.t); }
+  const emph: Emph = { active, hl, direct, out: chainIds, groups: new Set([...hl].map(id => p.cardGroup.get(id)).filter((g): g is string => !!g)) };
 
   const app: AppCtx = { s, a, view, ready, all, byId };
   const note = ready ? [s.drafting ? '生成中：模型还在输出，已出的卡片可能还会变' : '', view!.note, view!.coverage?.note,
@@ -232,7 +244,7 @@ export default function App() {
         {all.filter(c => c.type === 'subgoal').map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
         {p.unassigned > 0 && <option value="__unassigned__">{`归属待确认 · ${p.unassigned} 条`}</option>}
       </select></label>
-      <span id="scope">{ready ? `${all.filter(c => c.type === 'goal').length} 个目标 · ${all.filter(c => c.type !== 'goal').length} 条记录 · ${all.filter(c => isOpen(c, t)).length} 项风险/缺口待解决` +
+      <span id="scope">{focusSet ? `聚焦「${byId.get(s.focusId!)!.title}」的前后链路 · ${focusSet.size} 张卡 · 点空白处或按 Esc 回到完整地图` : ready ? `${all.filter(c => c.type === 'goal').length} 个目标 · ${all.filter(c => c.type !== 'goal').length} 条记录 · ${all.filter(c => isOpen(c, t)).length} 项风险/缺口待解决` +
         (p.unassigned ? ` · ${p.unassigned} 条归属待确认` : '') : ''}</span>
       <button id="reset" onClick={() => a.reset()}>重置视图</button>
       <button id="pending" hidden={!s.pending} onClick={() => a.takePending()}>{s.pending ? `有新摘要 #${s.pending.syncN} · 点击更新` : ''}</button>
