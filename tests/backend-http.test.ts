@@ -106,6 +106,8 @@ test('Node 产物：静态托管、SPA 回退、目录穿越不泄露文件', { 
     // Host 不是本机地址（DNS rebinding）时接口拒绝
     assert.match(await rawGet(port, '/api/sessions', `evil.example:${port}`), /^HTTP\/1.1 403/);
     assert.match(await rawGet(port, '/api/sessions', `127.0.0.1:${port}`), /^HTTP\/1.1 200/);
+    assert.match(await rawGet(port, '/api/sessions', 'localhost:8080'), /^HTTP\/1.1 200/, 'SSH 端口转发时端口不同也放行');
+    assert.match(await rawGet(port, '/api/sessions', '127.0.0.1.evil.example'), /^HTTP\/1.1 403/);
     for (const target of ['/../SECRET.txt', '/..%2fSECRET.txt', '/..%2f..%2fpackage.json', '/%2e%2e/SECRET.txt']) {
       const res = await rawGet(port, target);
       assert(!res.includes('SECRET') && !res.includes('"name"'), `${target} leaked: ${res.slice(-80)}`);
