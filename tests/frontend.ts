@@ -91,6 +91,15 @@ await test('focus_chain_then_back_to_full_map',async p=>{const d=fixture();const
   await p.locator('#c-K'+n).click();await p.waitForTimeout(700);assert.deepEqual(await ids(),[...chain(all,d.edges,'K'+n)].sort());
   await p.mouse.move(5,5);await p.keyboard.press('Escape');await p.waitForTimeout(700);assert.deepEqual(await ids(),before);assert.equal(await p.locator('.foldentry').count(),folds);
   assert.doesNotMatch((await p.locator('#scope').textContent())!,/聚焦/);assert.deepEqual(state.errors,[]);});
+await test('owned_cards_without_edges_stay_in_focus',async p=>{const d=fixture();
+  const like=(id:string,type:string,goalId:string,title:string)=>({...d.cards.find(c=>c.type===type)!,id,goalId,zoneId:goalId,title});
+  for(const x of [d,...d.history]){x.cards.push(like('S3','subgoal','S3','收尾'),like('V10','verify','S3','核对合并'),like('K10','concl','S3','已收尾'));x.edges.push({f:'GOAL',t:'S3',v:'拆成'},{f:'V10',t:'K10',v:'支持'});}
+  const state=await mount(p,d);await p.locator('#branch').selectOption('S3');
+  assert.equal(await p.locator('#edges path.implied').count(),1,'只给 V10 补一条虚线，K10 顺着 V10 找得到');
+  await p.locator('#c-V10 .dtl').click();await p.waitForTimeout(700);
+  const ids=await p.locator('.card:not(.out)').evaluateAll(ns=>ns.map(n=>(n as HTMLElement).dataset.id!).sort());
+  assert.deepEqual(ids,['GOAL','K10','S3','V10']);
+  assert((await p.locator('#dBody .relrow').allTextContents()).some(t=>t.startsWith('← 包含')));assert.deepEqual(state.errors,[]);});
 await test('history_delta_merges_with_held_history',async p=>{const state=await mount(p);const next=structuredClone(state.data!);const snap=structuredClone(next.history[1]);snap.at=3;next.syncN=3;next.updatedAt='n3';next.historySince=2;next.history=[snap];state.data=next;await p.waitForTimeout(5300);await p.locator('#histBtn').click();assert.equal(await p.locator('#hslider').getAttribute('max'),'3');await p.locator('#hslider').fill('1');assert.equal(await p.locator('#c-GOAL h4').textContent(),'旧目标正文');});
 }finally{await browser.close();await fs.writeFile(path.join(out,'results.json'),JSON.stringify(results,null,2));console.log(JSON.stringify(results,null,2));}
 if(results.some(x=>x.status==='FAIL'))process.exitCode=1;

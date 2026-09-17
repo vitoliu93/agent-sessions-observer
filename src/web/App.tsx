@@ -2,7 +2,7 @@
    轮询与异步请求要读最新状态，所以状态放在一个可变 store 里，改完调 bump() 重绘。 */
 import { useEffect, useReducer, useRef } from 'react';
 import type { Card, DataView, Edge, SessionItem } from '../shared/types.ts';
-import { cardsOf, chain, isOpen, plan, snapshot, type View } from './lib.ts';
+import { cardsOf, chain, isOpen, plan, snapshot, withOwnership, type View } from './lib.ts';
 import Topbar from './components/Topbar.tsx';
 import LiveBar from './components/LiveBar.tsx';
 import SigBar from './components/SigBar.tsx';
@@ -27,7 +27,8 @@ export interface Store {
   after: (() => void)[];
 }
 export type Actions = ReturnType<typeof createActions>;
-export interface AppCtx { s: Store; a: Actions; view: View | null; ready: boolean; all: Card[]; byId: Map<string, Card> }
+/** edges：已按归属补上虚线边，地图、聚焦、详情都用它 */
+export interface AppCtx { s: Store; a: Actions; view: View | null; ready: boolean; all: Card[]; byId: Map<string, Card>; edges: Edge[] }
 
 const newStore = (): Store => ({
   data: null, pending: null, sessions: [], curSid: null, viewTick: 0, follow: true,
@@ -204,7 +205,7 @@ export default function App() {
 
   const view = s.data ? snapshot(s.data, s.viewTick) : null, t = s.viewTick;
   const ready = !!(view?.goals?.length && (s.data?.syncN || s.drafting));
-  const all = ready ? cardsOf(view) : [], edges: Edge[] = ready ? view!.edges || [] : [];
+  const all = ready ? cardsOf(view) : [], edges: Edge[] = !ready ? [] : s.drafting ? view!.edges || [] : withOwnership(all, view!.edges || []);   // 草稿里边写在最后，没写到前不补虚线
   const byId = new Map(all.map(c => [c.id, c]));
   // 聚焦：选中卡后链路外的卡先淡出，180ms 后再把链路排紧；取消选中立刻回到完整地图
   if (!s.selectedId || !byId.has(s.selectedId)) s.focusId = null;
@@ -228,7 +229,7 @@ export default function App() {
   if (hover) for (const e of edges) if (direct(e)) { hl.add(e.f); hl.add(e.t); }
   const emph: Emph = { active, hl, direct, out: chainIds, groups: new Set([...hl].map(id => p.cardGroup.get(id)).filter((g): g is string => !!g)) };
 
-  const app: AppCtx = { s, a, view, ready, all, byId };
+  const app: AppCtx = { s, a, view, ready, all, byId, edges };
   const note = ready ? [s.drafting ? '生成中：模型还在输出，已出的卡片可能还会变' : '', view!.note, view!.coverage?.note,
     (view!.children || []).some(c => ['no-file', 'ambiguous'].includes(c.matched) || c.events === 0) ?
       '部分子会话未定位或归属不确定，不能视作完整覆盖。' : ''].filter(Boolean).join(' · ') : '';

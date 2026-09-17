@@ -2,7 +2,7 @@
 import type { AppCtx } from '../App.tsx';
 import { colIdx, labels, liveValue, stateAt, typeOf, types } from '../lib.ts';
 
-export default function Drawer({ app: { s, a, view, ready, byId } }: { app: AppCtx }) {
+export default function Drawer({ app: { s, a, view, ready, byId, edges } }: { app: AppCtx }) {
   const id = s.drawerId ?? s.drawerShown, c = id ? byId.get(id) : undefined, t = s.viewTick;
   let head = null, body = null;
   if (ready && id === '__LIVE__') {
@@ -11,7 +11,7 @@ export default function Drawer({ app: { s, a, view, ready, byId } }: { app: AppC
     body = (['now', 'known', 'next'] as const).map((k, i) =>
       <div key={k}><h4>{['正在做', '已证实', '还差什么'][i]}</h4><p>{e[k] || '未知'}</p></div>);
   } else if (c) {
-    const rels = (view!.edges || []).filter(e => e.f === c.id || e.t === c.id);
+    const rels = edges.filter(e => e.f === c.id || e.t === c.id);
     const facts = c.facts || [], notes = c.notes || [], steps = c.steps || [], acc = c.acc || [];
     head = <>
       <h3>{c.title}</h3>

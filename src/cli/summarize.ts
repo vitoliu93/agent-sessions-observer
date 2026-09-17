@@ -19,6 +19,7 @@ export const SCHEMA_DOC = `${ANALYZER_PROMPT_HEAD}输入是一个 coding agent�
 
 ## 边（edges，动词必须是这些之一）
 拆成(goal→subgoal) · 接着(goal→goal：旧目标做完后在其基础上继续，旧→新) · 推翻(goal→goal：新目标否定旧目标的做法重来，新→旧) · 采用(subgoal→change) · 妨碍(risk→change/subgoal) · 解决(group/change/verify/concl→risk) · 检查(subgoal/change→verify) · 支持(verify→concl) · 留下缺口(goal/subgoal/concl→gap)
+change / risk / verify / gap 卡都要有一条从子目标或上游卡连过来的边，比如子目标直接做的验证写 检查(subgoal→verify)。
 与已有目标无关的新任务不连目标边。没有明确因果依据的边不要连；时间相邻不构成因果。
 
 ## 署名（sig）

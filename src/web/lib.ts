@@ -94,6 +94,20 @@ export function plan(all: Card[], edges: Edge[], branch: string, expanded: Set<s
 }
 
 /**
+ * 模型常漏写子目标连到卡片的边，但卡上的 goalId/zoneId 明确写了归属。
+ * 顺着已有的边往左找不到自己的子目标时，补一条「子目标 包含 卡片」，画成虚线；只认 ID，不按标题猜。
+ */
+export function withOwnership(all: Card[], edges: Edge[]): Edge[] {
+  const byId = new Map(all.map(c => [c.id, c])), out = [...edges];
+  // 从左往右补：验证补上以后，它支持的结论就能顺着验证找到子目标，不用再补
+  for (const c of [...all].sort((x, y) => colIdx(x) - colIdx(y))) {
+    const owner = byId.get(c.goalId || c.zoneId || '');
+    if (owner?.type === 'subgoal' && colIdx(c) > 1 && !chain(all, out, c.id).has(owner.id)) out.push({ f: owner.id, t: c.id, v: '包含' });
+  }
+  return out;
+}
+
+/**
  * 选中卡的前后链路。地图从左到右是 目标 → 子目标 → 修改/问题 → 验证 → 结论/缺口，
  * 所以「前面」沿列号不增的关系往左找，「后面」沿列号不减的关系往右找，不管边的箭头方向。
  * 目标之间的接着/推翻只算选中卡自己的直接关系，不顺着展开别的目标。

@@ -54,7 +54,7 @@ export default function Edges({ ready, W, H, edges, byId, pos, cardGroup, emph, 
       (edge.f.startsWith('fold-') || edge.t.startsWith('fold-') ? ' · 组内' : '');
     return <Fragment key={key}>
       <path d={route} fill="none" stroke="#718198" strokeWidth="1.4" markerEnd="url(#arrow)" data-edge="1"
-        className={`${main ? 'main' : 'ctx'}${hit ? ' hl' : ''}`} />
+        className={`${main ? 'main' : 'ctx'}${hit ? ' hl' : ''}${edge.v === '包含' ? ' implied' : ''}`} />
       <text fill="#b6c4d7" textAnchor="middle" x={adjacent || !same ? (exit + enter) / 2 : exit + 14}
         y={adjacent || same ? (ay + by) / 2 : lane - 3} className={hit ? 'hl' : undefined} data-cand={cand ? '1' : undefined}>{label}</text>
     </Fragment>;

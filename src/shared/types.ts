@@ -2,7 +2,8 @@
 
 export type CardType = 'goal' | 'subgoal' | 'change' | 'risk' | 'verify' | 'concl' | 'gap' | 'group';
 export type State = 'doing' | 'done' | 'failed' | 'partial' | 'risk' | 'resolved' | 'unknown';
-export type Verb = '拆成' | '接着' | '推翻' | '采用' | '妨碍' | '解决' | '检查' | '支持' | '留下缺口';
+/** 包含：前端按卡片归属补的虚线边，模型不输出 */
+export type Verb = '拆成' | '接着' | '推翻' | '采用' | '妨碍' | '解决' | '检查' | '支持' | '留下缺口' | '包含';
 
 export interface Sig { verb: string; agent: string }
 export interface Step { title: string; who: string; st: State }

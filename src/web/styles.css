@@ -69,6 +69,7 @@ svg.edges text{font-size:10.5px;font-weight:600;paint-order:stroke;stroke:#0e101
 svg.edges text.show{display:inline}
 svg.edges path.ctx{opacity:.45}svg.edges path.main{opacity:.65}svg.edges path.hl{opacity:1}
 svg.edges path{transition:opacity .2s,stroke .2s}
+svg.edges path.implied{stroke-dasharray:5 4}
 
 /* ── 卡片：四层结构，高度自适应，只有标题/摘要有意省略 ── */
 .card{min-width:0;position:absolute;z-index:2;border-radius:11px;background:var(--panel);border:1px solid var(--line);padding:10px 12px;cursor:pointer;display:grid;gap:4px}
