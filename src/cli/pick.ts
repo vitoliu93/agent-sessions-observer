@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import readline from 'node:readline';
+import { autocomplete, isCancel } from '@clack/prompts';
 import stringWidth from 'string-width';
 import { firstUserInfo, indexAllSessions } from './parse.ts';
 import { listCodexRollouts, readCodexMeta } from './codex.ts';
@@ -94,47 +94,11 @@ export function matches(s: RecentSession, query: string): boolean {
 }
 
 /** 终端交互选择：↑↓ 选择，输入文字筛选，回车确认，Esc / Ctrl-C 取消（返回 null） */
-export function pickSession(sessions: RecentSession[]): Promise<string | null> {
-  const { stdin, stdout } = process;
-  let query = '', index = 0, top = 0;
-  return new Promise(resolve => {
-    const draw = () => {
-      const list = sessions.filter(s => matches(s, query));
-      const cols = stdout.columns || 100, rows = Math.max(3, (stdout.rows || 24) - 3);
-      index = Math.min(index, Math.max(0, list.length - 1));
-      if (index < top) top = index;
-      if (index >= top + rows) top = index - rows + 1;
-      const lines = [fit(`选择要观察的会话（共 ${list.length} 个）  ↑↓ 选择 · 输入文字筛选 · 回车确认 · Esc 退出`, cols - 2), `筛选：${query}`];
-      list.slice(top, top + rows).forEach((s, i) => {
-        const row = formatRow(s, cols);
-        lines.push(top + i === index ? `\x1b[7m❯ ${row}\x1b[0m` : `  ${row}`);
-      });
-      if (!list.length) lines.push('  没有匹配的会话');
-      // 每行清到行尾；最后一行不换行，防止屏幕滚动
-      stdout.write('\x1b[H\x1b[2J' + lines.map(l => l + '\x1b[K').join('\r\n'));
-    };
-    const done = (id: string | null) => {
-      stdin.off('keypress', onKey); stdout.off('resize', draw); stdin.setRawMode(false); stdin.pause();
-      stdout.write('\x1b[?7h\x1b[?25h\x1b[?1049l');
-      resolve(id);
-    };
-    const onKey = (str: string | undefined, key: readline.Key = {}) => {
-      if (key.name === 'escape' || (key.ctrl && key.name === 'c')) return done(null);
-      if (key.name === 'return') { const s = sessions.filter(x => matches(x, query))[index]; return s ? done(s.id) : undefined; }
-      if (key.name === 'up') index = Math.max(0, index - 1);
-      else if (key.name === 'down') index++;
-      else if (key.name === 'pageup') index = Math.max(0, index - Math.max(3, (stdout.rows || 24) - 3));
-      else if (key.name === 'pagedown') index += Math.max(3, (stdout.rows || 24) - 3);
-      else if (key.name === 'backspace') { query = query.slice(0, -1); index = top = 0; }
-      else if (str && !key.ctrl && !key.meta && str >= ' ') { query += str; index = top = 0; }
-      draw();
-    };
-    readline.emitKeypressEvents(stdin);
-    stdin.setRawMode(true); stdin.resume();
-    stdin.on('keypress', onKey);
-    stdout.on('resize', draw);
-    // 备用屏幕 + 隐藏光标 + 关闭自动折行
-    stdout.write('\x1b[?1049h\x1b[?25l\x1b[?7l');
-    draw();
-  });
+export async function pickSession(sessions: RecentSession[]): Promise<string | null> {
+  const cols = process.stdout.columns || 100, rows = process.stdout.rows || 24;
+  const picked = await autocomplete({ message: `选择要观察的会话（共 ${sessions.length} 个）`, maxItems: Math.max(3, rows - 6),
+    options: sessions.map(s => ({ value: s.id, label: formatRow(s, cols - 4) })),   // clack 每行前面占 3 格
+    filter: (q, o) => matches(sessions.find(s => s.id === o.value)!, q),
+    validate: v => v === undefined ? '没有匹配的会话' : undefined });   // 无匹配时回车留在原地，不退出
+  return isCancel(picked) ? null : picked;
 }
