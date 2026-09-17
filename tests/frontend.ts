@@ -74,7 +74,9 @@ await test('draft_renders_progressively',async p=>{const full=fixture();
   assert.match((await p.locator('#stat').textContent())!,/已出 3 张卡/);assert.match((await p.locator('#notebar').textContent())!,/生成中/);
   const next=structuredClone(d);next.draft!.cards=full.cards.slice(0,6);next.draft!.chars=2000;state.data=next;
   await p.locator('#c-C0').waitFor({timeout:2500});
+  await p.locator('#c-C0 .dtl').click();assert.equal(await p.locator('#dBody .kv b',{hasText:'关系'}).first().textContent(),'关系生成中');
   state.data=full;await p.locator('#stat',{hasText:'最新 · #2'}).waitFor({timeout:2500});
+  assert.equal(await p.locator('#pending').isVisible(),false);assert.match((await p.locator('#dBody .kv b',{hasText:'关系'}).first().textContent())!,/^关系 [1-9]/);
   assert.doesNotMatch((await p.locator('#notebar').textContent())!,/生成中/);assert.deepEqual(state.errors,[]);});
 await test('history_delta_merges_with_held_history',async p=>{const state=await mount(p);const next=structuredClone(state.data!);const snap=structuredClone(next.history[1]);snap.at=3;next.syncN=3;next.updatedAt='n3';next.historySince=2;next.history=[snap];state.data=next;await p.waitForTimeout(5300);await p.locator('#histBtn').click();assert.equal(await p.locator('#hslider').getAttribute('max'),'3');await p.locator('#hslider').fill('1');assert.equal(await p.locator('#c-GOAL h4').textContent(),'旧目标正文');});
 }finally{await browser.close();await fs.writeFile(path.join(out,'results.json'),JSON.stringify(results,null,2));console.log(JSON.stringify(results,null,2));}

@@ -105,8 +105,8 @@ function createActions(s: Store, bump: () => void) {
         return clearMap(s.boot.msg);
       }
       if (`${d.sessionId}:${d.syncN}:${d.updatedAt || ''}` === s.lastKey) return bump();
-      // 阅读中（详情、选中、回放、焦点在地图内）不替换地图，先提示
-      if (s.data?.sessionId === d.sessionId && (!s.follow || s.drawerId || s.selectedId || document.activeElement?.closest('#wrap'))) {
+      // 阅读中（详情、选中、回放、焦点在地图内）不替换正式地图，先提示；草稿直接换成正式版
+      if (s.data?.sessionId === d.sessionId && !s.drafting && (!s.follow || s.drawerId || s.selectedId || document.activeElement?.closest('#wrap'))) {
         s.pending = d; return bump();
       }
       adopt(d);

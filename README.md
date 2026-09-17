@@ -15,10 +15,13 @@
 ### 运行
 
 ```sh
-npx agent-sessions-obs                       # 空启动，在页面添加会话
+npx agent-sessions-obs                       # 列出最近会话，在终端里选一个
 npx agent-sessions-obs <session-id-or-prefix> --port 4174
+npx agent-sessions-obs codex://threads/<id>  # 也可以直接粘贴 Codex 复制的链接
 bunx agent-sessions-obs <session-id>         # 装了 Bun 也可以这样跑
 ```
+
+不给 ID 时，终端里列出最近的 Claude Code 与 Codex 主会话（标题、目录、最后修改时间）：↑↓ 选择，输入文字筛选，回车开始观察，Esc 退出。不在终端里运行（管道、脚本）时照旧空启动，在页面添加。页面添加框同样接受 ID、前缀和 `codex://threads/<id>` 链接。
 
 Node 18+。默认监听本机 `127.0.0.1:4173`。已有服务时换端口，不要覆盖或停止它。
 

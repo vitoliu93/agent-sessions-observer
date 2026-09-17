@@ -33,7 +33,7 @@ export default function Topbar({ app: { s, a, view, ready } }: { app: AppCtx }) 
             )) : <p>尚无会话</p>}
           </div>
           <div className="swAdd">
-            <input id="swNew" ref={input} className="mono" placeholder="粘贴 session ID（支持前缀）回车添加" spellCheck={false}
+            <input id="swNew" ref={input} className="mono" placeholder="粘贴 session ID、前缀或 codex:// 链接，回车添加" spellCheck={false}
               onKeyDown={e => { if (e.key === 'Enter') a.add(input.current!); }} />
             <button id="swAddBtn" onClick={() => a.add(input.current!)}>添加</button>
           </div>

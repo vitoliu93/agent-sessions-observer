@@ -21,7 +21,8 @@ export default function Drawer({ app: { s, a, view, ready, byId } }: { app: AppC
       <div className="kv"><b>署名</b><span>{(c.sig || []).map(g => `${g.verb}：${g.agent}`).join('；') || '未知'}</span></div>
       <p>{c.summary || c.sub || ''}</p>
       {c.summary && c.sub && c.summary !== c.sub && <p>{c.sub}</p>}
-      <div className="kv"><b>{`关系 ${rels.length}`}</b></div>
+      {/* 草稿里边写在全部卡片之后，没写到时不能显示成 0 */}
+      <div className="kv"><b>{s.drafting && !rels.length ? '关系生成中' : `关系 ${rels.length}`}</b></div>
       {rels.map((e, i) => {
         const other = e.f === c.id ? e.t : e.f, target = byId.get(other);
         return <button key={i} className="relrow" data-target={other} onClick={() => target && a.jump(other, colIdx(target))}>

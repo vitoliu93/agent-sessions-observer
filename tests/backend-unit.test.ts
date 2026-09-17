@@ -277,3 +277,27 @@ test('三种模型 CLI 的流式协议：边收边回调，结束取完整正文
     await assert.rejects(runModel('prompt', { cli: 'claude' }), /claude exit 1: API Error: 502/);
   } finally { process.env.PATH = oldPath; delete process.env.FAIL_MODE; fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('会话选择：codex:// 链接转 ID；最近会话含标题、目录，只列主线程，按修改时间倒序，可筛选', async () => {
+  const { sessionRef, listRecentSessions, matches } = await import('../src/cli/pick.ts');
+  assert.equal(sessionRef(' codex://threads/01a09ede-a29c-7c52-b223-5bda8d47ebee '), '01a09ede-a29c-7c52-b223-5bda8d47ebee');
+  assert.equal(sessionRef('codex://threads/abc?x=1'), 'abc');
+  assert.equal(sessionRef('4c972375'), '4c972375');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-pick-')), old = process.env.HOME;
+  const claudeDir = path.join(home, '.claude/projects/-w'), codexDir = path.join(home, '.codex/sessions/2026/09/17');
+  fs.mkdirSync(claudeDir, { recursive: true }); fs.mkdirSync(codexDir, { recursive: true });
+  const write = (file: string, rows: object[], mtime: number) => { fs.writeFileSync(file, rows.map(r => JSON.stringify(r)).join('\n') + '\n'); fs.utimesSync(file, mtime, mtime); };
+  write(path.join(claudeDir, 'aaaa.jsonl'), [{ type: 'user', cwd: '/w/app', message: { content: '修登录' } }, { type: 'ai-title', aiTitle: '旧名' }, { type: 'custom-title', customTitle: '用户改名' }, { type: 'ai-title', aiTitle: '新名' }], 3000);
+  write(path.join(claudeDir, 'bbbb.jsonl'), [{ type: 'user', cwd: '/w', message: { content: '没有标题时用首条需求' } }], 1000);
+  const rollout = (id: string, meta: object, mtime: number) => write(path.join(codexDir, `rollout-2026-09-17T10-00-00-${id}.jsonl`), [{ type: 'session_meta', payload: { id, cwd: '/w/codex', ...meta } }], mtime);
+  const main = '01a0a985-9682-7031-91fc-1fad66020d86', child = '01a0a985-aaaa-7031-91fc-1fad66020d86';
+  rollout(main, { thread_source: 'user' }, 2000); rollout(child, { thread_source: 'subagent' }, 4000);
+  fs.writeFileSync(path.join(home, '.codex/session_index.jsonl'), JSON.stringify({ id: main, thread_name: 'Codex 线程' }) + '\n');
+  process.env.HOME = home;
+  try {
+    const list = listRecentSessions();
+    assert.deepEqual(list.map(s => [s.source, s.id, s.title, s.cwd]), [
+      ['claude', 'aaaa', '用户改名', '/w/app'], ['codex', main, 'Codex 线程', '/w/codex'], ['claude', 'bbbb', '没有标题时用首条需求', '/w']]);
+    assert.deepEqual(list.filter(s => matches(s, 'codex 线程')).map(s => s.id), [main]);
+  } finally { process.env.HOME = old; fs.rmSync(home, { recursive: true, force: true }); }
+});

@@ -38,7 +38,7 @@ export interface SessionInfo { file: string; project: string; sessionId: string 
 export interface IndexedSession extends SessionInfo { size?: number; mtime?: number; birthtime?: number }
 
 export function projectsDir(): string {
-  return path.join(os.homedir(), '.claude', 'projects');
+  return path.join(process.env.HOME || os.homedir(), '.claude', 'projects');
 }
 
 /** 按 sessionId 全名或前缀定位 session 文件 */

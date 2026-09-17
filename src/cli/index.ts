@@ -10,12 +10,14 @@ import { findSession, parseSession } from './parse.ts';
 import { buildTree, type Child } from './tree.ts';
 import { buildTranscriptDetailed } from './segment.ts';
 import { buildPrompt, runModel, normalizeMap, parsePartialJson } from './summarize.ts';
+import { listRecentSessions, pickSession, sessionRef } from './pick.ts';
 
 const HELP = `agent-sessions-obs — Agent Session「需求解决地图」观察台
 
 用法：
-  agent-sessions-obs                         空启动，在页面添加会话
+  agent-sessions-obs                         列出最近会话，在终端里选一个（非终端环境则空启动，在页面添加）
   agent-sessions-obs <session-id-or-prefix> [<id>…] [选项]
+                                             ID 也可以是 Codex 复制的 codex://threads/<id> 链接
 
 选项：
   --port <n>        监听 127.0.0.1 端口（默认 4173）
@@ -36,7 +38,7 @@ const ids: string[] = [];
 for (let i = 0; i < argv.length; i++) {
   if (flagsWithValues.has(argv[i])) { i++; continue; }   // 跳过 flag 及其值
   if (argv[i].startsWith('--')) continue;
-  ids.push(argv[i]);
+  ids.push(sessionRef(argv[i]));
 }
 const PORT = +flag('--port', 4173);
 const INTERVAL = +flag('--interval', 60) * 1000;
@@ -305,7 +307,7 @@ const server = http.createServer(async (req, res) => {
       return json(200, { sessions: [...observers.values()].map(o => o.listView()) });
     }
     if (u.pathname === '/api/sessions/add' && req.method === 'POST') {
-      const { id } = await readJson(req);
+      const body = await readJson(req), id = typeof body.id === 'string' ? sessionRef(body.id) : body.id;
       if (!validId(id)) return json(400, { error: 'invalid id' });
       const o = addSession(id);
       return json(200, { ok: true, sid: o.sessionId || o.prefix });
@@ -336,6 +338,16 @@ const server = http.createServer(async (req, res) => {
     json((e as HttpError).status || 500, { error: String((e as Error).message || e) });
   }
 });
+
+// 没给 ID 且在终端里：列出最近会话让用户选；非终端（管道、测试）照旧空启动
+if (!ids.length && process.stdin.isTTY && process.stdout.isTTY) {
+  const recent = listRecentSessions();
+  if (recent.length) {
+    const picked = await pickSession(recent);
+    if (!picked) { console.log('已取消。'); process.exit(0); }
+    ids.push(picked);
+  } else console.log('本机没有找到 Claude Code 或 Codex 会话；空启动，可在页面添加 session ID。');
+}
 
 server.listen(PORT, '127.0.0.1', () => {
   const url = `http://127.0.0.1:${PORT}`;
