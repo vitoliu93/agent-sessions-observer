@@ -71,12 +71,17 @@ test('history_without_selected_branch_resets_to_overview', async ({ page, open }
 
 test('draft_renders_progressively', async ({ page, open }) => {
   const full = fixture();
-  const d: DataView = { ...full, syncN: 0, analyzing: true, history: [], goals: [], cards: [], edges: [], draft: { goals: full.goals, cards: full.cards.slice(0, 2), edges: full.edges.slice(0, 2), live: { now: '草稿进行中' }, chars: 900, startedAt: 'x' } };
-  const state = await open(d); await page.locator('#c-S1').waitFor();
+  // C0 的标题先只写了 3 个字，下一次轮询写完：标题在同一个 DOM 节点里变长
+  const head = full.cards[2].title.slice(0, 3);
+  const d: DataView = { ...full, syncN: 0, analyzing: true, history: [], goals: [], cards: [], edges: [], draft: { goals: full.goals, cards: [...full.cards.slice(0, 2), { ...full.cards[2], title: head }], edges: full.edges.slice(0, 2), live: { now: '草稿进行中' }, chars: 900, startedAt: 'x' } };
+  const state = await open(d); await page.locator('#c-C0').waitFor();
   assert.equal(await page.locator('#boot').isVisible(), false);
-  assert.match((await page.locator('#stat').textContent())!, /已出 3 张卡/); assert.match((await page.locator('#notebar').textContent())!, /生成中/);
+  assert.match((await page.locator('#stat').textContent())!, /已出 4 张卡/); assert.match((await page.locator('#notebar').textContent())!, /生成中/);
+  assert.equal(await page.locator('#c-C0 h4').textContent(), head);
+  const node = await page.evaluateHandle(() => document.querySelector('#c-C0'));
   const next = structuredClone(d); next.draft!.cards = full.cards.slice(0, 6); next.draft!.chars = 2000; state.data = next;
-  await page.locator('#c-C0').waitFor({ timeout: 2500 });
+  await expect(page.locator('#c-C0 h4')).toHaveText(full.cards[2].title, { timeout: 2500 });
+  assert(await page.evaluate(n => n === document.querySelector('#c-C0'), node), '标题变长时卡片不重建');
   await page.locator('#c-C0 .dtl').click();
   assert.equal(await page.locator('#dBody .kv b', { hasText: '关系' }).first().textContent(), '关系生成中');
   state.data = full; await page.locator('#stat', { hasText: '最新 · #2' }).waitFor({ timeout: 2500 });

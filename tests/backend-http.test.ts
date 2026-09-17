@@ -120,7 +120,7 @@ test('HTTP: 分析中边输出边给草稿，完成后草稿清空、进入正�
   const sid = 'session-draft', dir = path.join(tmp, '.claude/projects/p'); fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `${sid}.jsonl`), JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:00:00Z', message: { content: 'draft please' } }) + '\n');
   const answer = JSON.stringify({ goals: [{ id: 'G1', title: '先做', st: 'done' }, { id: 'G2', title: '后做', st: 'doing' }], cards: [{ id: 'S1', type: 'subgoal', title: '子目标', st: 'doing' }, { id: 'C1', type: 'change', title: '修改', st: 'done' }], edges: [{ f: 'G1', t: 'G2', v: '接着' }, { f: 'G2', t: 'S1', v: '拆成' }], live: { now: 'x' }, note: '' });
-  const cut = answer.indexOf('{"id":"C1"');
+  const cut = answer.indexOf('修改') + 1;   // 切在 C1 标题中间：草稿里 C1 在，标题只有「修」
   const cli = path.join(tmp, 'fake-model.mjs'), gate = path.join(tmp, 'gate');
   // 写完前半截后等测试放行，保证测试能看到分析中的草稿
   fs.writeFileSync(cli, `#!/usr/bin/env bun
@@ -134,12 +134,12 @@ while (!fs.existsSync(process.env.GATE)) await Bun.sleep(20); process.stdout.wri
     const mid = await until(async () => { const x = await data(); return x?.draft?.cards?.length && x; }, 10000);
     assert.equal(mid.syncN, 0); assert.equal(mid.analyzing, true);
     assert.deepEqual(mid.draft.goals.map((g: any) => g.id), ['G1', 'G2']);
-    assert.deepEqual(mid.draft.cards.map((c: any) => c.id), ['S1']);
+    assert.deepEqual(mid.draft.cards.map((c: any) => [c.id, c.title]), [['S1', '子目标'], ['C1', '修']]);
     assert(mid.draft.chars > 0);
     fs.writeFileSync(gate, '');
     const done = await until(async () => { const x = await data(); return x?.syncN === 1 && x; }, 10000);
     assert.equal(done.draft, null);
-    assert.deepEqual(done.goals.map((g: any) => g.id), ['G1', 'G2']);
+    assert.deepEqual(done.goals.map((g: any) => g.id), ['G1', 'G2']); assert.equal(done.cards[1].title, '修改');
     assert.deepEqual(done.edges.map((e: any) => e.v), ['接着', '拆成']);
   } finally { proc.kill(); await proc.exited; fs.rmSync(tmp, { recursive: true, force: true }); }
 });

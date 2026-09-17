@@ -241,15 +241,20 @@ test('多目标：旧格式单目标兼容；目标间只允许 接着/推翻；
   assert.throws(() => normalizeMap({ ...x, goals: [{ id: 'G1', title: ' ' }] }), /no valid goal/);
 });
 
-test('半截 JSON 只取写完的目标、卡与边，不留半张卡', async () => {
-  const { parsePartialJson } = await import('../src/cli/summarize.ts');
-  const full = JSON.stringify({ goals: [{ id: 'G1', title: 'g', sig: [{ verb: 'v', agent: 'host' }] }], cards: [{ id: 'S1', type: 'subgoal', title: 's "}{]" 引号' }, { id: 'C1', type: 'change', title: 'c', facts: ['x'] }], edges: [{ f: 'G1', t: 'S1', v: '拆成' }] });
+test('半截 JSON：字段边写边出；写到一半的 ID、类型、署名先丢，标题保留前缀', async () => {
+  const { parsePartialJson, dropHalfIds } = await import('../src/cli/summarize.ts');
+  const full = JSON.stringify({ goals: [{ id: 'G1', title: 'g', sig: [{ verb: 'v', agent: 'host' }] }], cards: [{ id: 'S1', type: 'subgoal', title: 's "}{]" 引号', st: 'doing' }, { id: 'C12', type: 'change', title: '修改排序', st: 'done', sig: [{ verb: '实现', agent: 'host' }] }], edges: [{ f: 'S1', t: 'C12', v: '采用' }] });
+  const draft = (upTo: string, offset = 0) => { const p = parsePartialJson(full.slice(0, full.indexOf(upTo) + offset)); dropHalfIds(p); return p; };
   assert.equal(parsePartialJson('```json\n'), null);
-  assert.equal(parsePartialJson(full.slice(0, full.indexOf('host'))), null);   // 目标还没写完
-  const cut = parsePartialJson(full.slice(0, full.indexOf('"facts"')));      // C1 写了一半
-  assert.deepEqual(cut.cards.map((c: any) => c.id), ['S1']);
-  assert.equal(cut.cards[0].title, 's "}{]" 引号');
   assert.deepEqual(parsePartialJson('```json\n' + full + '\n```'), JSON.parse(full));
+  assert.deepEqual(draft('"id":"C12"', '"id":"C1'.length).cards.map((c: any) => c.id), ['S1']);      // ID 写到 C1：不能当成 C1
+  assert.deepEqual(draft('"t":"C12"', '"t":"C1'.length).edges, []);                                     // 边的端点写到 C1：不能连到 C1
+  assert.deepEqual(draft('"type":"change"', '"type":"cha'.length).cards.map((c: any) => c.id), ['S1']);   // 类型写了一半
+  const mid = draft('修改排序', '修改'.length).cards[1];
+  assert.equal(mid.id, 'C12'); assert.equal(mid.title, '修改');                                       // 标题写了一半：卡在，标题是前缀
+  assert.equal(draft('"st":"done"', '"st":"do'.length).cards[1].st, 'do');                             // 状态半截交给 normalizeMap 记为未知
+  assert.deepEqual(draft('"agent":"host"}]}],"edges"', '"agent":"ho'.length).cards[1].sig, []);      // 署名写到 ho：不能算成别人
+  assert.equal(normalizeMap({ goals: [{ id: 'G1', title: 'g' }], cards: [{ id: 'C1', type: 'change', title: 'c', st: 'do' }], edges: [] }).cards[0].st, 'unknown');
 });
 
 test('三种模型 CLI 的流式协议：边收边回调，结束取完整正文；报错带上原因', async () => {

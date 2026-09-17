@@ -10,7 +10,7 @@ import type { Card, Coverage, DataView, Draft, Edge, Live, MapResult, SessionIte
 import { findSession, parseSession } from './parse.ts';
 import { buildTree, type Child } from './tree.ts';
 import { buildTranscriptDetailed } from './segment.ts';
-import { buildPrompt, runModel, normalizeMap, parsePartialJson } from './summarize.ts';
+import { buildPrompt, runModel, normalizeMap, parsePartialJson, dropHalfIds } from './summarize.ts';
 import { listRecentSessions, pickSession, sessionRef } from './pick.ts';
 
 const HELP = `agent-sessions-obs — Agent Session「需求解决地图」观察台
@@ -155,10 +155,13 @@ class Observer {
     this.lastError = null; this.failures = 0; this.retryAt = 0;
     log(`sync#${this.syncN} ok cards=${this.cards.length} edges=${this.edges.length} tx=${transcriptInfo.text.length} 用时 ${Math.round((Date.now() - started) / 1000)}s`);
   }
-  /** 半截输出能校验出目标才更新草稿；不合规的部分按正式规则丢弃。模型断流重来时，新草稿追上旧的才替换，页面不倒退 */
+  /** 半截输出能校验出目标才更新草稿：字段边写边变长，写到一半的 ID 先丢，其余不合规的部分按正式规则丢弃。
+   *  卡片张数只增不减：一张卡要 id、type、title 都到了才算，之后不会再丢；张数相等时照样替换（内容变长了）。
+   *  模型断流重来时文本从头开始、张数下降，追上旧草稿才替换，页面不倒退 */
   updateDraft(text: string, transcript: string, agentKeys: string[]) {
     const partial = parsePartialJson(text);
     if (!partial || !this.draft) return;
+    dropHalfIds(partial);
     try {
       const m = normalizeMap({ ...partial, cards: Array.isArray(partial.cards) ? partial.cards : [], edges: Array.isArray(partial.edges) ? partial.edges : [] }, { transcript, agentKeys });
       if (m.goals.length + m.cards.length < this.draft.goals.length + this.draft.cards.length) return;

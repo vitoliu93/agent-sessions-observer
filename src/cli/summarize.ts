@@ -1,5 +1,6 @@
 // summarize.ts — LLM 压缩：事件流 → 地图卡片 schema（经本机模型 CLI，零依赖）
 import { spawn } from 'node:child_process';
+import { Allow, parse as parsePartial } from 'partial-json';
 import type { Card, CardType, Coverage, Edge, Live, MapResult, Sig, State, Step, Verb } from '../shared/types.ts';
 
 export const ANALYZER_PROMPT_HEAD = '你是「需求解决地图」分析器。';
@@ -73,27 +74,35 @@ export function parseModelJson(out: string): unknown {
   return JSON.parse(out.slice(a, b + 1));
 }
 
-/** 模型还在输出时取出已写完的部分：截到最后一个写完的目标、卡、边或 live 对象，再补齐括号 */
+/** 模型还在输出时取已写到的部分：字段边写边出，写到一半的键、转义先不算；写完后面跟了围栏或解释文字时按完整输出解析 */
 export function parsePartialJson(text: string): any {
   const start = text.indexOf('{');
   if (start < 0) return null;
-  const stack: string[] = [];
-  let inStr = false, esc = false, cut = -1, closers = '';
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
-    if (ch === '"') inStr = true;
-    else if (ch === '{') stack.push('}');
-    else if (ch === '[') stack.push(']');
-    else if (ch === '}' || ch === ']') {
-      stack.pop();
-      // 只在第二层（goal/live）或第三层（cards/edges 元素）对象写完时截断，不留半张卡
-      if (ch === '}' && stack.length <= 2) { cut = i + 1; closers = [...stack].reverse().join(''); }
-      if (!stack.length) break;
-    }
+  try { return parsePartial(text.slice(start), Allow.ALL); }
+  catch { try { return parseModelJson(text); } catch { return null; } }
+}
+
+/** 写到一半会认错人的键：ID、类型、边的端点和动词、署名和执行者。半截标题只是短一点，半截 ID 会撞上别的卡 */
+const ID_KEYS = new Set(['id', 'type', 'goalId', 'f', 't', 'v', 'agent', 'who']);
+/**
+ * 草稿防护：JS 对象保持源文本键序，所以「最后一个键 → 数组最后一个元素 → 它的最后一个键……」就是模型正在写的位置。
+ * 这条路径上最里面一个对象的最后一个键若是 ID 类，整个对象先丢掉（在数组里就弹出，在父对象里就删键），下一轮写完再出现。只用于草稿。
+ */
+export function dropHalfIds(root: any): void {
+  const path: { node: any; key: string | number }[] = [];
+  for (let node = root; node && typeof node === 'object';) {
+    const keys = Object.keys(node);
+    if (!keys.length) break;
+    const key = Array.isArray(node) ? node.length - 1 : keys[keys.length - 1];
+    path.push({ node, key }); node = node[key];
   }
-  if (cut < 0) return null;
-  try { return JSON.parse(text.slice(start, cut) + closers); } catch { return null; }
+  for (let i = path.length - 1; i >= 0; i--) {
+    const { node, key } = path[i];
+    if (Array.isArray(node) || !ID_KEYS.has(String(key))) continue;
+    const owner = path[i - 1];
+    if (owner && Array.isArray(owner.node)) owner.node.pop(); else if (owner) delete owner.node[owner.key];
+    return;
+  }
 }
 
 /** 调无头模型 CLI：边输出边回调已收到的正文，结束后返回解析好的 JSON。prompt 不走命令行参数，规避长度限制。

@@ -94,7 +94,7 @@ function createActions(s: Store, bump: () => void) {
       s.curSid = d.sessionId || sid;
       const dr = d.analyzing ? d.draft : null, shown = dr ? dr.goals.length + dr.cards.length : 0;
       const failed = `分析失败：${d.lastError}。稍后会自动重试，也可以点「触发同步」立即重试。`;
-      const waiting = !dr?.chars ? '正在生成第一版地图：等模型开始输出…' : `正在生成第一版地图：已收到 ${dr.chars} 字，等第一个目标写完…`;
+      const waiting = !dr?.chars ? '正在生成第一版地图：等模型开始输出…' : `正在生成第一版地图：已收到 ${dr.chars} 字，等第一张卡出现…`;
       s.boot = { show: !d.syncN && !shown, msg: d.lastError && !d.analyzing ? failed : d.analyzing ? waiting : '尚无摘要，请触发同步。' };
       s.stat = d.analyzing ? (shown ? `摘要生成中 · 已出 ${shown} 张卡` : '摘要生成中…') : d.lastError ? '上次同步失败' : `最新 · #${d.syncN}`;
       s.resyncDisabled = !!d.analyzing; s.fast = !!d.analyzing;
