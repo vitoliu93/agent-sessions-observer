@@ -76,9 +76,9 @@ import fs from 'node:fs'; const p=await Bun.stdin.text(); fs.appendFileSync(proc
 });
 
 // 原始请求：fetch 会把 /../ 规范化掉，穿越测试必须绕开客户端
-function rawGet(port: number, target: string): Promise<string> {
+function rawGet(port: number, target: string, host = '127.0.0.1'): Promise<string> {
   return new Promise((resolve, reject) => {
-    const s = net.connect(port, '127.0.0.1', () => s.end(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`));
+    const s = net.connect(port, '127.0.0.1', () => s.end(`GET ${target} HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`));
     let out = ''; s.setEncoding('utf8'); s.on('data', d => { out += d; }); s.on('end', () => resolve(out)); s.on('error', reject);
   });
 }
@@ -103,6 +103,9 @@ test('Node 产物：静态托管、SPA 回退、目录穿越不泄露文件', { 
     assert.equal(await r.text(), 'APP_JS'); assert.match(r.headers.get('content-type')!, /javascript/);
     assert.equal(await (await fetch(`http://127.0.0.1:${port}/some/route`)).text(), 'INDEX_OK');
     assert.equal((await fetch(`http://127.0.0.1:${port}/api/nope`)).status, 404);
+    // Host 不是本机地址（DNS rebinding）时接口拒绝
+    assert.match(await rawGet(port, '/api/sessions', `evil.example:${port}`), /^HTTP\/1.1 403/);
+    assert.match(await rawGet(port, '/api/sessions', `127.0.0.1:${port}`), /^HTTP\/1.1 200/);
     for (const target of ['/../SECRET.txt', '/..%2fSECRET.txt', '/..%2f..%2fpackage.json', '/%2e%2e/SECRET.txt']) {
       const res = await rawGet(port, target);
       assert(!res.includes('SECRET') && !res.includes('"name"'), `${target} leaked: ${res.slice(-80)}`);

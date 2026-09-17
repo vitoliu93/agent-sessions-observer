@@ -298,10 +298,13 @@ function serveStatic(pathname: string, res: http.ServerResponse) {
   res.writeHead(200, { 'content-type': MIME[path.extname(target)] || 'application/octet-stream' });
   res.end(fs.readFileSync(target));
 }
+const LOCAL_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url || '/', 'http://x');
   const json = (code: number, obj: unknown) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
   try {
+    // 只认本机地址：DNS rebinding 时 Host 是攻击者域名，读写接口都拒绝
+    if (u.pathname.startsWith('/api/') && !LOCAL_HOSTS.has(req.headers.host || '')) return json(403, { error: 'host not allowed' });
     if (req.method === 'POST' && req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) return json(403, { error: 'cross-origin write rejected' });
     if (u.pathname === '/api/sessions') {
       return json(200, { sessions: [...observers.values()].map(o => o.listView()) });
