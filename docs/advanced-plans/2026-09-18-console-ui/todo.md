@@ -1,14 +1,14 @@
 # Todo: 控制台 UI 重设计
 
 ## Current State
-- **Phase**: P3 — 页面回归与交付
-- **Status**: done
+- **Phase**: P4 — 发布 0.6.0
+- **Status**: in_progress
 - **Branch**: advanced-plan-2026-09-18-console-ui
 - **Worktree**: /Users/liujiaxi/codebase/projects/agent-sessions-observer.worktrees/advanced-plan-2026-09-18-console-ui
 - **Last done**: 实现提交 e32ff12；类型检查、干净构建、29 项单元/HTTP/终端测试、40 项浏览器测试和 Node 24.18.0 隔离联调全部通过。
-- **Next**: 用户查看新版；合并与发布需另行安排。
-- **In flight**: 无
-- **Next command**: 读取本目录 result.md；在工作目录运行 node dist-cli/index.js 可启动新版。
+- **Next**: 检查发布包，合并并推送 main；远端 CI 通过后推送 v0.6.0 标签。
+- **In flight**: 版本与发布包检查。
+- **Next command**: bun install --frozen-lockfile && bun run typecheck && bun run build；npm pack --dry-run --json。
 - **Blockers**: 无。
 
 ## Phases
@@ -34,3 +34,11 @@
 - [x] 对照批准样稿检查；记录实测范围，保留工作分支，不发布。
 - **Acceptance**: 无页面横向溢出，卡片与连线无遮挡，历史与实时不混读，阅读不被更新打断。
 - **Verify**: `bun run test:web`、DOM 与截图 → **Result**: 40/40 通过。截图目检及 Node 产物真实 HTTP 隔离联调通过；没有真实模型或线上数据验收。详见 result.md。
+
+### P4 — 发布 0.6.0 [in_progress]
+- [ ] 版本号与包内容检查，合并并推送 main。
+- [ ] main 对应提交的远端 CI 通过。
+- [ ] v0.6.0 标签触发发布并成功。
+- [ ] 从 npm 下载 0.6.0，检查命令入口和页面资源。
+- **Acceptance**: npm latest 为 0.6.0；远端检查和发布成功；下载的包可运行，包含正式页面。
+- **Verify**: GitHub Actions、npm registry、隔离安装检查。
