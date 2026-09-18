@@ -2,13 +2,13 @@
 
 ## Current State
 - **Phase**: P3 — 页面回归与交付
-- **Status**: in_progress
+- **Status**: done
 - **Branch**: advanced-plan-2026-09-18-console-ui
 - **Worktree**: /Users/liujiaxi/codebase/projects/agent-sessions-observer.worktrees/advanced-plan-2026-09-18-console-ui
-- **Last done**: 正式页面按样稿实现；Tailwind 与 Lucide 接通；干净构建、开发监听、29 项单元与 HTTP/终端测试、浏览器回归及 Node 产物隔离联调通过。
-- **Next**: 完整复跑 40 项浏览器测试，写交付结果并提交工作分支。
+- **Last done**: 实现提交 e32ff12；类型检查、干净构建、29 项单元/HTTP/终端测试、40 项浏览器测试和 Node 24.18.0 隔离联调全部通过。
+- **Next**: 用户查看新版；合并与发布需另行安排。
 - **In flight**: 无
-- **Next command**: 读取本目录 goal.md、spec.md、prototype.html
+- **Next command**: 读取本目录 result.md；在工作目录运行 node dist-cli/index.js 可启动新版。
 - **Blockers**: 无。
 
 ## Phases
@@ -28,9 +28,9 @@
 - **Acceptance**: 无外部 CDN，干净构建可用，图标具名导入，重复样式减少。
 - **Verify**: `bun run typecheck && bun run test && bun run build`，开发监听验证 → **Result**: 通过。删除生成 CSS 后完整构建成功；新增 w-[137px] 后 Tailwind 与 Bun 均重建；SIGTERM 后两个子进程退出。单元与 HTTP/终端测试 29/29。
 
-### P3 — 页面回归与交付 [in_progress]
-- [ ] 原有相关浏览器测试通过，新信息结构补测试。
-- [ ] 1920/1280/900 宽度检查，键盘操作、长文本、空会话、错误、历史、草稿可达。
-- [ ] 对照批准样稿检查；记录实测范围，保留工作分支，不发布。
+### P3 — 页面回归与交付 [done]
+- [x] 原有相关浏览器测试通过，新信息结构补测试。
+- [x] 1920/1280/900 宽度检查，键盘操作、长文本、空会话、错误、历史、草稿可达。
+- [x] 对照批准样稿检查；记录实测范围，保留工作分支，不发布。
 - **Acceptance**: 无页面横向溢出，卡片与连线无遮挡，历史与实时不混读，阅读不被更新打断。
-- **Verify**: `bun run test:web`、DOM 与截图 → **Result**: 未运行。
+- **Verify**: `bun run test:web`、DOM 与截图 → **Result**: 40/40 通过。截图目检及 Node 产物真实 HTTP 隔离联调通过；没有真实模型或线上数据验收。详见 result.md。
