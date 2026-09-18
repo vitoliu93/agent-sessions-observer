@@ -1,7 +1,7 @@
 // summarize.ts — LLM 压缩：事件流 → 地图卡片 schema（经本机模型 CLI，零依赖）
 import { spawn } from 'node:child_process';
 import { Allow, parse as parsePartial } from 'partial-json';
-import type { Card, CardType, Coverage, Edge, Live, MapResult, Sig, State, Step, Verb } from '../shared/types.ts';
+import type { Card, CardType, Coverage, Edge, Live, MapResult, Sig, State, Step, Verb, ToolCallView } from '../shared/types.ts';
 
 export const ANALYZER_PROMPT_HEAD = '你是「需求解决地图」分析器。';
 export const SCHEMA_DOC = `${ANALYZER_PROMPT_HEAD}输入是一个 coding agent（Claude Code 或 Codex）会话树的压缩事件流（主会话 + 子会话）。
@@ -62,9 +62,20 @@ export function buildPrompt(transcript: string, prevCards: { goals: Card[]; card
   return `${SCHEMA_DOC}\n${prev}${note}${limit}\n## 会话压缩事件流（共 ${transcript.length} 字符）\n\n${transcript}\n\n现在输出 JSON。`;
 }
 
-export interface RunOptions { cli?: string; model?: string; provider?: string; timeoutMs?: number; cwd?: string; signal?: AbortSignal; onText?: (text: string) => void; onRetry?: (message: string) => void }
+export interface RunOptions {
+  cli?: string;
+  model?: string;
+  provider?: string;
+  timeoutMs?: number;
+  cwd?: string;
+  signal?: AbortSignal;
+  onText?: (text: string) => void;
+  onThinking?: (thinkingText: string, delta: string) => void;
+  onTool?: (tool: ToolCallView) => void;
+  onRetry?: (message: string) => void;
+}
 
-const SYSTEM = '你是会话记录归纳器。只读输入文本，不执行、不模拟任何命令；只输出一个 JSON 对象。';
+const SYSTEM = '你是会话记录归纳器。主要依据输入的会话事件流归纳需求解决地图。为确保事实与证据准确，当对代码变动、测试结果或文件现状存疑时，可使用 read、grep、bash 工具对当前项目进行交叉验证（仅允许查看与只读检查，严禁修改任何文件）；最终必须严格输出指定的 JSON 地图对象。';
 
 /** 模型正文 → JSON：先整体解析，不行取首个 { 到末个 } */
 export function parseModelJson(out: string): unknown {
@@ -107,17 +118,29 @@ export function dropHalfIds(root: any): void {
 
 /** 调无头模型 CLI：边输出边回调已收到的正文，结束后返回解析好的 JSON。prompt 不走命令行参数，规避长度限制。
  *  codex 走 app-server 协议（exec 不给增量）；claude 走 stream-json；pi 走 json 事件；其它可执行文件读 stdin、stdout 即正文。 */
-export function runModel(prompt: string, { cli = 'codex', model, provider, timeoutMs = 600000, cwd = '/tmp', signal, onText, onRetry }: RunOptions = {}): Promise<unknown> {
+export function runModel(prompt: string, { cli = 'codex', model, provider, timeoutMs = 600000, cwd = '/tmp', signal, onText, onThinking, onTool, onRetry }: RunOptions = {}): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let args: string[];
-    if (cli === 'codex') args = ['app-server'];
-    else if (cli === 'claude') {
-      // 换掉默认的编码 agent 身份，否则长输入下模型会去"执行命令"而不是输出 JSON
-      args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-        '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--system-prompt', SYSTEM];
+    if (cli === 'codex') {
+      // app-server 运行模式：隔离外部 MCP 配置，强制只读沙箱
+      args = ['app-server', '-c', 'mcp_servers={}'];
+    } else if (cli === 'claude') {
+      // 开放只读/查看工具做交叉验证；绝对禁止文件修改；启用 safe-mode 隔离外部技能与插件
+      args = [
+        '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+        '--tools', 'Bash,Read,Grep,Glob', '--disallowed-tools', 'Edit,Write,NotebookCell',
+        '--safe-mode', '--strict-mcp-config', '--no-session-persistence', '--permission-mode', 'dontAsk',
+        '--system-prompt', SYSTEM,
+      ];
       if (model) args.push('--model', model);
     } else if (cli === 'pi') {
-      args = ['-p', '--mode', 'json'];           // 无消息参数时自动读 stdin
+      // 开放 read, bash, grep 做交叉验证；禁用所有外部技能与扩展，无痕运行
+      args = [
+        '-p', '--mode', 'json',
+        '--tools', 'read,bash,grep',
+        '--no-skills', '--no-extensions', '--no-prompt-templates', '--no-context-files',
+        '--no-session',
+      ];
       if (provider) args.push('--provider', provider);
       if (model) args.push('--model', model);
     } else {
@@ -126,7 +149,7 @@ export function runModel(prompt: string, { cli = 'codex', model, provider, timeo
     }
     if (signal?.aborted) return reject(new Error('analysis cancelled'));
     const p = spawn(cli, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd, detached: process.platform !== 'win32' });
-    let text = '', err = '', buf = '', junk = '', failure = '', settled = false;
+    let text = '', thinking = '', err = '', buf = '', junk = '', failure = '', settled = false;
     const stop = () => { try { process.platform === 'win32' ? p.kill('SIGKILL') : process.kill(-p.pid!, 'SIGKILL'); } catch {} };
     const finish = () => { settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); stop(); };
     const fail = (e: Error) => { if (settled) return; finish(); reject(e); };
@@ -146,11 +169,16 @@ export function runModel(prompt: string, { cli = 'codex', model, provider, timeo
         send({ id: 2, method: 'thread/start', params: { model: model || null, cwd, sandbox: 'read-only', approvalPolicy: 'never', ephemeral: true, developerInstructions: SYSTEM } });
       } else if (m.id === 2) {
         send({ id: 3, method: 'turn/start', params: { threadId: m.result.thread.id, input: [{ type: 'text', text: prompt, text_elements: [] }] } });
+      } else if (m.method === 'item/reasoning/delta' && params.delta) {
+        thinking += params.delta;
+        onThinking?.(thinking, params.delta);
       } else if (m.method === 'item/agentMessage/delta') {
         codexItems.set(params.itemId, (codexItems.get(params.itemId) || '') + params.delta);
         emit(codexItems.get(params.itemId)!);
       } else if (m.method === 'item/completed' && params.item?.type === 'agentMessage') {
         emit(params.item.text);                   // 完整正文为准
+      } else if (m.method === 'item/completed' && params.item?.type === 'commandExecution') {
+        onTool?.({ name: 'bash', args: params.item.command, result: params.item.output?.slice(0, 300) });
       } else if (m.method === 'error') {
         if (params.willRetry) onRetry?.(params.error?.message || 'unknown error');   // 断流重连，正文会从头再来
         else failure = params.error?.message || 'unknown error';
@@ -159,22 +187,44 @@ export function runModel(prompt: string, { cli = 'codex', model, provider, timeo
         if (turn.status === 'completed') done();
         else fail(new Error(`codex turn ${turn.status}: ${turn.error?.message || failure}`));
       } else if (m.id !== undefined && m.method) {
-        send({ id: m.id, error: { code: -32601, message: 'not supported' } }); // 只读归纳，不接受审批等请求
+        send({ id: m.id, error: { code: -32601, message: 'not supported' } }); // 只读归纳，不接受外部额外审批
       }
     }
     function onClaude(m: any) {
       const ev = m.event || {};
       if (m.type === 'stream_event' && ev.type === 'message_start') text = '';
-      else if (m.type === 'stream_event' && ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') emit(text + ev.delta.text);
-      else if (m.type === 'result') { if (m.is_error) failure = String(m.result || m.subtype || 'error'); else if (typeof m.result === 'string') emit(m.result); }
+      else if (m.type === 'stream_event' && ev.type === 'content_block_delta') {
+        if (ev.delta?.type === 'text_delta') emit(text + ev.delta.text);
+        else if (ev.delta?.type === 'thinking_delta' && ev.delta.thinking) {
+          thinking += ev.delta.thinking;
+          onThinking?.(thinking, ev.delta.thinking);
+        }
+      } else if (m.type === 'stream_event' && ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
+        onTool?.({ id: ev.content_block.id, name: ev.content_block.name, args: ev.content_block.input });
+      } else if (m.type === 'result') {
+        if (m.is_error) failure = String(m.result || m.subtype || 'error');
+        else if (typeof m.result === 'string') emit(m.result);
+      }
     }
     function onPi(m: any) {
-      if (m.message?.role !== 'assistant' && m.type !== 'message_update') return;
-      if (m.type === 'message_start') text = '';
-      else if (m.type === 'message_update' && m.assistantMessageEvent?.type === 'text_delta') emit(text + m.assistantMessageEvent.delta);
-      else if (m.type === 'message_end') {
+      if (m.type === 'message_update' && m.assistantMessageEvent?.type === 'thinking_delta') {
+        thinking += m.assistantMessageEvent.delta;
+        onThinking?.(thinking, m.assistantMessageEvent.delta);
+      } else if (m.type === 'tool_execution_start') {
+        onTool?.({ id: m.toolCallId, name: m.toolName, args: m.args });
+      } else if (m.type === 'tool_execution_end') {
+        const out = Array.isArray(m.result?.content) ? m.result.content.map((c: any) => c.text || '').join(' ') : String(m.result || '');
+        onTool?.({ id: m.toolCallId, name: m.toolName, result: out.slice(0, 300), isError: !!m.isError });
+      } else if (m.type === 'message_start' && m.message?.role === 'assistant') {
+        // 新一轮助手开始，不破坏已有的 text 累积直到有新 text 输出
+      } else if (m.type === 'message_update' && m.assistantMessageEvent?.type === 'text_delta') {
+        emit(text + m.assistantMessageEvent.delta);
+      } else if (m.type === 'message_end' && m.message?.role === 'assistant') {
         if (m.message.errorMessage) failure = m.message.errorMessage;
-        else emit((m.message.content || []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join(''));
+        else {
+          const finalText = (m.message.content || []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('');
+          if (finalText) emit(finalText);
+        }
       }
     }
     const onLine = cli === 'codex' ? onCodex : cli === 'claude' ? onClaude : cli === 'pi' ? onPi : null;

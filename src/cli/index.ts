@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import type { Card, Coverage, DataView, Draft, Edge, Live, MapResult, SessionItem, Snapshot, Stamp } from '../shared/types.ts';
+import type { Card, Coverage, DataView, Draft, Edge, Live, MapResult, SessionItem, Snapshot, Stamp, ToolCallView } from '../shared/types.ts';
 import { findSession, parseSession } from './parse.ts';
 import { buildTree, type Child } from './tree.ts';
 import { buildTranscriptDetailed } from './segment.ts';
@@ -74,6 +74,11 @@ if (!installed(CLI)) {
 }
 
 const short = (s: string | null | undefined) => (s || '').slice(0, 8);
+const ts = () => {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
 type HttpError = Error & { status?: number };
 
 type Host = ReturnType<typeof findSession> & ReturnType<typeof parseSession>;
@@ -104,7 +109,7 @@ class Observer {
     return false;
   }
   async analyze() {
-    const first = this.syncN === 0, started = Date.now(), log = (m: string) => console.log(`[${short(this.sessionId || this.prefix)}] ${m}`);
+    const first = this.syncN === 0, started = Date.now(), log = (m: string) => console.log(`[${ts()}] [${short(this.sessionId || this.prefix)}] ${m}`);
     const hostInfo = findSession(this.sessionId || this.prefix);
     const parsed = parseSession(hostInfo.file);
     this.title = parsed.title || this.title || '';
@@ -117,6 +122,13 @@ class Observer {
     const inputSignature = inputs.map(c => c.signature).join('|');
     const prevMap = this.goals.length ? { goals: this.goals, cards: this.cards, edges: this.edges } : null;
     const agentKeys = ['host', ...tree.children.map(c => c.key)];
+    const rawCwd = host.events.find(e => e.cwd)?.cwd || (host.project && path.isAbsolute(host.project) ? host.project : '');
+    let projectCwd = process.cwd();
+    if (rawCwd) {
+      try {
+        if (fs.existsSync(rawCwd) && fs.statSync(rawCwd).isDirectory()) projectCwd = rawCwd;
+      } catch {}
+    }
     this.controller = new AbortController();
     let transcriptInfo: ReturnType<typeof buildTranscriptDetailed>, raw: unknown;
     // 预算按字符算，中文 token 更密；模型报超长就缩预算重试，并记住能放下的预算
@@ -125,7 +137,7 @@ class Observer {
       const prompt = buildPrompt(transcriptInfo.text, prevMap, first ? null : '增量：与上一版相比保持卡 id 稳定，只推进有新证据的状态；用户新提出的需求建新目标卡，不记成缺口；失败记录不删除；未知仍然写未知。', transcriptInfo.coverage);
       log(`调用 ${CLI}${MODEL ? `（${MODEL}）` : ''} 归纳：输入 ${prompt.length} 字${transcriptInfo.coverage.truncated ? '，部分记录已截断' : ''}`);
       const tx = transcriptInfo.text, callStart = Date.now();
-      this.draft = { goals: [], cards: [], edges: [], live: {}, chars: 0, startedAt: new Date().toISOString() };
+      this.draft = { goals: [], cards: [], edges: [], live: {}, chars: 0, startedAt: new Date().toISOString(), thinking: '', toolCalls: [] };
       let parsedAt = 0;
       const onText = (text: string) => {
         if (!this.draft) return;
@@ -134,9 +146,45 @@ class Observer {
         parsedAt = Date.now();
         this.updateDraft(text, tx, agentKeys);
       };
-      const beat = setInterval(() => log(`分析中 ${Math.round((Date.now() - callStart) / 1000)}s：` +
-        (this.draft?.chars ? `已收到 ${this.draft.chars} 字，已出 ${this.draft.goals.length + this.draft.cards.length} 张卡` : '等待模型开始输出')), 15000);
-      try { raw = await runModel(prompt, { cli: CLI, model: MODEL || undefined, provider: PROVIDER || undefined, signal: this.controller.signal, onText, onRetry: m => log(`模型输出中断，${CLI} 自动重试：${m}`) }); break; }
+      const onThinking = (thinkingText: string) => {
+        if (!this.draft) return;
+        this.draft.thinking = thinkingText;
+      };
+      const onTool = (tool: ToolCallView) => {
+        if (!this.draft) return;
+        this.draft.toolCalls ??= [];
+        const exist = tool.id ? this.draft.toolCalls.find(t => t.id === tool.id) : null;
+        if (exist) Object.assign(exist, tool);
+        else this.draft.toolCalls.push(tool);
+      };
+      const beat = setInterval(() => {
+        const dr = this.draft;
+        const sec = Math.round((Date.now() - callStart) / 1000);
+        if (dr?.chars) {
+          log(`分析中 ${sec}s：已收到 ${dr.chars} 字，已出 ${dr.goals.length + dr.cards.length} 张卡`);
+        } else if (dr?.toolCalls?.length && !dr.toolCalls.at(-1)?.result) {
+          const cur = dr.toolCalls.at(-1)!;
+          log(`分析中 ${sec}s：交叉验证中 · ${cur.name} ${typeof cur.args === 'string' ? cur.args : JSON.stringify(cur.args || '')}`);
+        } else if (dr?.thinking) {
+          log(`分析中 ${sec}s：思考推演中（已推演 ${dr.thinking.length} 字）` + (dr.toolCalls?.length ? `，已验证 ${dr.toolCalls.length} 次` : ''));
+        } else {
+          log(`分析中 ${sec}s：等待模型开始输出`);
+        }
+      }, 15000);
+      try {
+        raw = await runModel(prompt, {
+          cli: CLI,
+          model: MODEL || undefined,
+          provider: PROVIDER || undefined,
+          cwd: projectCwd,
+          signal: this.controller.signal,
+          onText,
+          onThinking,
+          onTool,
+          onRetry: m => log(`模型输出中断，${CLI} 自动重试：${m}`),
+        });
+        break;
+      }
       catch (e) { if (!/prompt is too long|context.{0,20}(length|window|limit)|too many tokens/i.test((e as Error).message) || this.budget < 20000 || this.removed) throw e; log(`prompt too long, budget ${this.budget} → ${Math.floor(this.budget * 0.6)}`); }
       finally { clearInterval(beat); }
     }
@@ -179,6 +227,7 @@ class Observer {
       at: tick, goals: clone(this.goals), cards: clone(this.cards), edges: clone(this.edges), live: clone(this.live), note: this.note,
       children: (this.tree?.children || []).map(c => ({ key: c.key, label: c.label, kind: c.kind, events: c.events.length, matched: c.matched })),
       stamps: clone(this.stamps.slice(-1)), updatedAt: this.updatedAt, dataReadAt: this.dataReadAt, coverage: clone(coverage),
+      thinking: this.draft?.thinking, toolCalls: clone(this.draft?.toolCalls || []),
     };
     this.history.push(Object.freeze(snapshot));
   }
@@ -233,7 +282,7 @@ function removeSession(prefix: string): boolean {
 function schedule(o: Observer | null): boolean {
   if (!o || o.removed || o.analyzing) return false;
   o.analyzing = true; // 入队前占用，首次与手动同步走同一条路。
-  if (busy) console.log(`[${short(o.sessionId || o.prefix)}] 排队中：等其它会话分析完成`);
+  if (busy) console.log(`[${ts()}] [${short(o.sessionId || o.prefix)}] 排队中：等其它会话分析完成`);
   queue = queue.then(async () => {
     if (o.removed) return;
     busy = true;
@@ -241,7 +290,7 @@ function schedule(o: Observer | null): boolean {
   }).catch(e => {
     o.lastError = String(e.message || e);
     o.retryAt = Date.now() + Math.min(300000, 5000 * 2 ** Math.min(o.failures++, 6));
-    console.error(`[${short(o.prefix)}] sync error:`, o.lastError);
+    console.error(`[${ts()}] [${short(o.prefix)}] sync error:`, o.lastError);
   }).finally(() => { o.analyzing = false; o.controller = null; o.draft = null; busy = false; });
   return true;
 }

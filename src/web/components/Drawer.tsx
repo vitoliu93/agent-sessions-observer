@@ -21,6 +21,25 @@ export default function Drawer({ app: { s, a, view, ready, byId, edges } }: { ap
       <h4 className="section-label">摘要生成到</h4><p id="stSum" className="font-mono text-[13px]">{stamp?.summary || view!.updatedAt || '未知'}</p>
       <h4 className="section-label">数据说明</h4><p>{view!.note || '未提供额外说明。'}</p>
       {view!.coverage?.note && <p>{view!.coverage.note}</p>}
+      {(view!.toolCalls?.length || s.data?.draft?.toolCalls?.length) ? <>
+        <h4 className="section-label">只读交叉验证记录 · {(view!.toolCalls || s.data?.draft?.toolCalls || []).length} 次</h4>
+        <ul className="space-y-2">{((view!.toolCalls || s.data?.draft?.toolCalls) || []).map((t, i) => (
+          <li key={i} className="rounded-md border border-line bg-canvas p-2.5 text-xs">
+            <div className="flex items-center gap-1.5 font-medium text-sky-800">
+              <span>🔍 {t.name}</span>
+              <span className="font-mono text-muted">{typeof t.args === 'string' ? t.args : JSON.stringify(t.args || {})}</span>
+            </div>
+            {t.result && <div className="mt-1 text-muted line-clamp-2">{t.result}</div>}
+          </li>
+        ))}</ul>
+      </> : null}
+      {(view!.thinking || s.data?.draft?.thinking) && <>
+        <h4 className="section-label">归纳推演记录 (Thinking)</h4>
+        <div className="max-h-60 overflow-y-auto rounded-md bg-canvas p-3 font-mono text-xs leading-relaxed text-muted whitespace-pre-wrap">
+          {(view!.thinking || s.data?.draft?.thinking || '').slice(0, 10000)}
+          {(view!.thinking || s.data?.draft?.thinking || '').length > 10000 ? '\n…（已截断长思考）' : ''}
+        </div>
+      </>}
       <h4 className="section-label">子会话 · {view!.children?.length || 0}</h4>
       <ul>{(view!.children || []).map(child => <li key={child.key}><span>{child.label || child.key}</span><span className="ml-2 text-xs text-muted">{child.matched === 'no-file' ? '未找到记录' : child.matched === 'ambiguous' ? '归属待确认' : child.events === 0 ? '没有读取到记录' : `${child.events} 条记录`}</span></li>)}</ul>
       <div className="evbox">署名来自记录归纳。部分子会话未定位或归属不明时，不代表完整覆盖。</div>

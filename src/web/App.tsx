@@ -10,6 +10,7 @@ import SigBar from './components/SigBar.tsx';
 import MapView, { type Emph } from './components/MapView.tsx';
 import Drawer from './components/Drawer.tsx';
 import History, { HistoryButton } from './components/History.tsx';
+import ThinkingWheel from './components/ThinkingWheel.tsx';
 
 export interface Store {
   data: DataView | null; pending: DataView | null; sessions: SessionItem[]; curSid: string | null;
@@ -95,16 +96,35 @@ function createActions(s: Store, bump: () => void) {
       s.curSid = d.sessionId || sid;
       const dr = d.analyzing ? d.draft : null, shown = dr ? dr.goals.length + dr.cards.length : 0;
       const failed = `分析失败：${d.lastError}。稍后会自动重试，也可以点「同步」立即重试。`;
-      const waiting = !dr?.chars ? '正在生成第一版地图：等模型开始输出…' : `正在生成第一版地图：已收到 ${dr.chars} 字，等第一张卡出现…`;
+      const waiting = dr?.chars
+        ? `正在生成第一版地图：已收到 ${dr.chars} 字，等第一张卡出现…`
+        : dr?.thinking
+        ? `正在推演需求解决路径（已推演 ${dr.thinking.length} 字）…`
+        : '正在启动归纳推演：等模型开始输出…';
       s.boot = { show: !d.syncN && !shown, msg: d.lastError && !d.analyzing ? failed : d.analyzing ? waiting : '尚无摘要，请点击同步。' };
-      s.stat = d.analyzing ? (shown ? `摘要生成中 · 已出 ${shown} 张卡` : '摘要生成中…') : d.lastError ? '上次同步失败' : `最新 · #${d.syncN}`;
+      s.stat = d.analyzing
+        ? (shown
+          ? `摘要生成中 · 已出 ${shown} 张卡`
+          : dr?.thinking
+          ? `推演思考中 · ${dr.thinking.length} 字`
+          : '摘要生成中…')
+        : d.lastError
+        ? '上次同步失败'
+        : `最新 · #${d.syncN}`;
       s.resyncDisabled = !!d.analyzing; s.fast = !!d.analyzing;
       s.notice = d.analyzing ? '' : d.lastError || '';
       if (!d.syncN) {
-        // 第一版还没出来：边收边画草稿；已有正式地图时不拿草稿替换
+        // 第一版还没出来：若已解析出卡片草稿，边收边画地图草稿
         if (dr?.goals.length) {
           const key = `${d.sessionId}:draft:${dr.chars}`;
           return key === s.lastKey ? bump() : adopt({ ...d, goals: dr.goals, cards: dr.cards, edges: dr.edges, live: dr.live, history: [] }, key);
+        }
+        // 正在推演中（Thinking/ToolCalls 阶段）：保留完整数据视图让滚轮实时展示
+        if (d.analyzing) {
+          s.data = d;
+          s.drafting = true;
+          bump();
+          return;
         }
         return clearMap(s.boot.msg);
       }
@@ -240,7 +260,7 @@ export default function App() {
 
   return (<>
     <Topbar app={app} />
-    <main className="min-w-0 px-5 pt-6 pb-8 sm:px-7">
+    <main className="min-w-0 px-5 pt-6 pb-14 sm:px-7">
       <div className={s.drawerId ? "lg:mr-120" : undefined}>
       <LiveBar app={app} />
       <div className="toolbar mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -260,14 +280,18 @@ export default function App() {
       <div id="notice" className="mb-3 flex items-start gap-2 rounded-md border border-warning/25 bg-paper p-3 text-[13px] text-warning wrap-anywhere" hidden={!s.notice} role="status" aria-live="polite"><CircleAlert className="mt-0.5" />{s.notice}</div>
       </div>
       <MapView app={app} plan={p} emph={emph} edges={edges} />
-      <div className="mt-4 flex items-start gap-3 text-xs text-muted">
+      <footer className={`fixed inset-x-0 bottom-0 z-50 flex items-center justify-between gap-3 border-t border-line/70 bg-canvas/92 px-5 py-2 text-xs text-muted backdrop-blur-md sm:px-7 ${s.drawerId ? "lg:pr-[508px]" : ""}`} hidden={!ready && !note}>
         <p id="notebar" className="flex-1 text-warning wrap-anywhere" hidden={!note}>{note}</p>
-        {ready && <button className="btn ml-auto text-xs" onClick={() => a.openDrawer('__INFO__')}><Info className="size-3.5" />数据说明</button>}
-      </div>
-      <section id="boot" className="flex min-h-80 flex-col items-center justify-center gap-3 px-4 text-center" role="status" hidden={!s.boot.show}>
-        <FolderOpen className="size-8 text-muted" /><h2 className="msg max-w-xl text-base font-medium wrap-anywhere">{s.boot.msg}</h2>
-        <button className="btn btn-outline" onClick={() => { a.toggleMenu(); requestAnimationFrame(() => $('swNew')?.focus()); }}>添加或切换会话</button>
-      </section>
+        {ready && <button className="btn ml-auto text-xs shrink-0" onClick={() => a.openDrawer('__INFO__')}><Info className="size-3.5" />数据说明</button>}
+      </footer>
+      {s.boot.show && s.data?.analyzing && !ready ? (
+        <ThinkingWheel draft={s.data?.draft || null} analyzing={s.data?.analyzing} sessionId={s.curSid} />
+      ) : (
+        <section id="boot" className="flex min-h-80 flex-col items-center justify-center gap-3 px-4 text-center" role="status" hidden={!s.boot.show}>
+          <FolderOpen className="size-8 text-muted" /><h2 className="msg max-w-xl text-base font-medium wrap-anywhere">{s.boot.msg}</h2>
+          <button className="btn btn-outline" onClick={() => { a.toggleMenu(); requestAnimationFrame(() => $('swNew')?.focus()); }}>添加或切换会话</button>
+        </section>
+      )}
     </main>
     <Drawer app={app} />
   </>);

@@ -32,7 +32,8 @@ export default function Topbar({ app: { s, a, ready } }: { app: AppCtx }) {
     </div>
     <div className="ml-auto flex items-center gap-2">
       <button className="btn text-muted" disabled={!ready} onClick={() => a.openDrawer('__INFO__')} aria-label="查看同步详情">
-        <StateIcon className={`size-3.5 ${s.fast ? 'animate-spin' : ''}`} /><span id="stat" className="text-xs max-sm:sr-only">{s.follow ? s.stat : `历史快照 · #${s.viewTick}`}</span>
+        {!s.fast && <StateIcon className="size-3.5" />}
+        <span id="stat" className="text-xs max-sm:sr-only">{s.follow ? s.stat : `历史快照 · #${s.viewTick}`}</span>
       </button>
       <button className="btn btn-outline" id="btnResync" disabled={s.resyncDisabled} onClick={() => a.resync()}><RefreshCw className={`size-3.5 ${s.fast ? 'animate-spin' : ''}`} />同步</button>
     </div>

@@ -39,6 +39,14 @@ export interface ChildView { key: string; label: string; kind: string; events: n
 export interface Stamp { at: number; data: string; summary: string }
 
 /** 一次成功归纳的完整快照；历史回放与抽屉都读它 */
+export interface ToolCallView {
+  id?: string;
+  name: string;
+  args?: any;
+  result?: string;
+  isError?: boolean;
+}
+
 export interface Snapshot {
   at: number;
   /** 用户先后提出的目标，按提出顺序 */
@@ -53,6 +61,8 @@ export interface Snapshot {
   updatedAt: string | null;
   dataReadAt: string | null;
   coverage?: Coverage;
+  thinking?: string;
+  toolCalls?: ToolCallView[];
 }
 
 /** 模型还在输出时已写完的部分；只在分析中存在，不进历史 */
@@ -64,6 +74,10 @@ export interface Draft {
   /** 已收到的模型正文字数 */
   chars: number;
   startedAt: string;
+  /** 实时思考/推演内容 */
+  thinking?: string;
+  /** 只读交叉验证调用记录 */
+  toolCalls?: ToolCallView[];
 }
 
 /** GET /api/data */
