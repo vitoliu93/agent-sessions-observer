@@ -67,7 +67,7 @@ test('coverage_warning_is_not_hidden_in_details', async ({ page, open }) => {
 
 test('menus_close_with_escape_and_return_focus', async ({ page, open }) => {
   await open();
-  for (const [button, panel] of [['#swBtn', '#swMenu'], ['#pcAll', '#pcPanel']]) {
+  for (const [button, panel] of [['#swBtn', '#swMenu']]) {
     await page.locator(button).click();
     await expect(page.locator(button)).toHaveAttribute('aria-expanded', 'true');
     await page.keyboard.press('Escape');
@@ -76,14 +76,12 @@ test('menus_close_with_escape_and_return_focus', async ({ page, open }) => {
   }
 });
 
-test('participant_filter_wins_over_hover_after_menu_closes', async ({ page, open }) => {
+test('header_stays_on_top_while_page_scrolls', async ({ page, open }) => {
+  await page.setViewportSize({ width: 1280, height: 600 });
   await open();
-  await page.locator('#pcAll').click();
-  await page.locator('#pcSearch').fill('agent-1');
-  await page.locator('[data-k="agent-1"]').click();
-  await page.locator('#c-GOAL').hover();
-  const names = await page.locator('.card.hl .sig1 b').allTextContents();
-  assert(names.length > 0); assert.deepEqual([...new Set(names)], ['agent-1']);
+  await page.evaluate(() => scrollTo(0, 500));
+  await expect.poll(async () => Math.round((await page.locator('header').boundingBox())!.y)).toBe(0);
+  await expect(page.locator('#btnResync')).toBeInViewport();
 });
 
 test('history_controls_remain_clickable_beside_details', async ({ page, open }) => {

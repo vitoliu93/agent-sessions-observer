@@ -17,7 +17,12 @@ const good = (): any => ({
 });
 
 test('结构坏图拒绝；坏卡、重复 ID、坏连线只丢弃并计数，坏状态记为未知', () => {
-  for (const mutate of [(x: any) => { delete x.goal; }, (x: any) => { x.cards = {}; }]) { const x = good(); mutate(x); assert.throws(() => normalizeMap(x), /bad map/); }
+  for (const wrong of [null, 'x', 42, []]) assert.throws(() => normalizeMap(wrong as any), /bad map/);
+  { const x = good(); delete x.goal; assert.throws(() => normalizeMap(x), /bad map/); }   // 一个合法目标都没有才作废整版
+  const miss = good(); miss.cards = {}; delete miss.edges;                                // 模型漏写整段：按空处理并写明，不作废
+  const mm = normalizeMap(miss);
+  assert.deepEqual([mm.goals.length, mm.cards.length, mm.edges.length], [1, 0, 0]);
+  assert.match(mm.note, /模型没有输出 cards 和 edges/);
   const z = good(); z.cards.push({ ...z.cards[0] }, { ...z.cards[1], id: 'X1', type: 'made-up' }); z.cards[1].st = 'wat'; z.cards[1].facts = 'oops';
   const zm = normalizeMap(z);
   assert.deepEqual(zm.cards.map(c => c.id), ['S1', 'C1']); assert.match(zm.note, /丢弃 2 张/);
@@ -267,7 +272,9 @@ test('三种模型 CLI 的流式协议：边收边回调，结束取完整正文
   script('codex', `${say} if(process.env.FAIL_MODE){} let n=0; for await (const chunk of console) { const m=JSON.parse(chunk);
     if(m.id===1) say({id:1,result:{}}); if(m.id===2) say({id:2,result:{thread:{id:'t'}}});
     if(m.id===3){ if(process.env.FAIL_MODE){say({method:'error',params:{error:{message:'502 upstream'},willRetry:false}});say({method:'turn/completed',params:{turn:{status:'failed',error:null}}});continue;}
-      say({id:3,result:{turn:{id:'u'}}}); say({method:'item/agentMessage/delta',params:{itemId:'x',delta:'{"goa'}}); say({method:'error',params:{error:{message:'stream disconnected'},willRetry:true}}); say({method:'item/agentMessage/delta',params:{itemId:'i',delta:${half}}}); await Bun.sleep(50);
+      say({id:3,result:{turn:{id:'u'}}});
+      say({method:'item/reasoning/summaryTextDelta',params:{delta:'第一段'}}); say({method:'item/reasoning/summaryPartAdded',params:{}}); say({method:'item/reasoning/summaryTextDelta',params:{delta:'第二段'}});
+      say({method:'item/agentMessage/delta',params:{itemId:'x',delta:'{"goa'}}); say({method:'error',params:{error:{message:'stream disconnected'},willRetry:true}}); say({method:'item/agentMessage/delta',params:{itemId:'i',delta:${half}}}); await Bun.sleep(50);
       say({method:'item/agentMessage/delta',params:{itemId:'i',delta:${rest}}}); say({method:'item/completed',params:{item:{type:'agentMessage',id:'i',text:${whole}}}});
       say({method:'turn/completed',params:{turn:{status:'completed'}}}); } }`);
   script('claude', `${say} await Bun.stdin.text(); if(process.env.FAIL_MODE){say({type:'result',is_error:true,result:'API Error: 502'});process.exit(1);}
@@ -283,8 +290,10 @@ test('三种模型 CLI 的流式协议：边收边回调，结束取完整正文
     for (const cli of ['codex', 'claude', 'pi']) {
       const seen: string[] = [];
       const retries: string[] = [];
-      const out: any = await runModel('prompt', { cli, onText: t => seen.push(t), onRetry: m => retries.push(m) });
+      let thinking = '';
+      const out: any = await runModel('prompt', { cli, onText: t => seen.push(t), onRetry: m => retries.push(m), onThinking: t => { thinking = t; } });
       if (cli === 'codex') assert.deepEqual(retries, ['stream disconnected']);
+      if (cli === 'codex') assert.equal(thinking, '第一段\n\n第二段');   // 思考摘要按段落拼接
       assert.equal(out.goals[0].title, 'ok', cli);
       assert(seen.some(t => t.length > 0 && t.length < answer.length), `${cli} 没有增量：${JSON.stringify(seen)}`);
     }

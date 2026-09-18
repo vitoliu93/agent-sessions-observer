@@ -1,4 +1,4 @@
-// 地图：布局、折叠、连线、参与者高亮、多目标、聚焦链路
+// 地图：布局、折叠、连线、多目标与顶部目标条、聚焦链路
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { chain } from '../../src/web/lib.ts';
@@ -14,7 +14,6 @@ test('overview_42_16_52', async ({ page, open }) => {
     conclusions: document.querySelectorAll('.card.concl').length,
   }));
   assert.equal(m.w, m.v); assert(m.h <= 1080, JSON.stringify(m)); assert(m.goal.x < 100); assert.equal(m.bad.length, 0); assert(m.conclusions > 0);
-  assert.equal(await page.locator('#pcN').textContent(), '16');
   await page.screenshot({ path: path.join(OUT, 'overview.png'), fullPage: true });
 });
 
@@ -61,25 +60,12 @@ test('edges_do_not_cross_cards', async ({ page, open }) => {
 test('no_script_error', async ({ page, open }) => {
   const state = await open();
   await expect(page.locator('#reset')).toBeHidden();
-  await page.locator('#branch').selectOption('S1');
+  await page.locator('#c-S1 .branch').click();
   await page.locator('#reset').click();
-  await page.locator('#branch').selectOption('S2');
+  await page.locator('#c-S2 .branch').click();
   await page.locator('#c-S2 .dtl').click();
   await page.keyboard.press('Escape');
   assert.deepEqual(state.errors, []);
-});
-
-test('agent_with_folded_contribution_has_visible_highlight', async ({ page, open }) => {
-  await open();
-  await page.locator('#pcAll').click(); await page.locator('#pcSearch').fill('agent-15'); await page.locator('.pcrow').click();
-  assert(await page.locator('.foldentry.hl').count() > 0);
-});
-
-test('agent_highlights_only_signed_cards', async ({ page, open }) => {
-  await open();
-  await page.locator('#pcAll').click(); await page.locator('#pcSearch').fill('agent-1'); await page.locator('.pcrow[data-k="agent-1"]').click();
-  const agents = await page.locator('.card.hl .sig1 b').allTextContents();
-  assert(agents.length > 0); assert.deepEqual([...new Set(agents)], ['agent-1']);
 });
 
 test('hovered_card_highlights_direct_relations_only', async ({ page, open }) => {
@@ -108,8 +94,13 @@ test('multiple_goals_dag', async ({ page, open }) => {
   const state = await open(d);
   for (const id of ['GOAL', 'GOAL2', 'GOAL3']) assert((await page.locator('#c-' + id).boundingBox())!.x < 100, id);
   await page.locator('#c-GOAL2').hover(); assert((await page.locator('#edges text.hl').allTextContents()).includes('接着'));
-  await page.locator('#branch').selectOption('GOAL'); assert.equal(await page.locator('#c-GOAL2').count(), 0); assert.equal(await page.locator('#c-S1').count(), 1);
-  await page.locator('#branch').selectOption('S1'); assert.equal(await page.locator('#c-GOAL').count(), 1); assert.equal(await page.locator('#c-S2').count(), 0);
+  assert.equal(await page.locator('#goalline button.text-accent').count(), 0, '全部目标时没有当前目标');
+  await page.locator('#gt-GOAL').click(); assert.equal(await page.locator('#c-GOAL2').count(), 0); assert.equal(await page.locator('#c-S1').count(), 1);
+  assert.equal(await page.locator('#gt-GOAL').textContent(), await page.locator('#c-GOAL h4').textContent());
+  await page.locator('#c-S1 .branch').click(); assert.equal(await page.locator('#c-GOAL').count(), 1); assert.equal(await page.locator('#c-S2').count(), 0);
+  // 聚焦一张卡：目标之间的先后交给目标条，目标列只留链路自己那一个目标
+  await page.locator('#reset').click(); await page.locator('#c-GOAL2').click();
+  await expect.poll(() => page.locator('.card.goal:not(.out)').count()).toBe(1);
   assert.deepEqual(state.errors, []);
 });
 
@@ -123,13 +114,13 @@ test('focus_chain_then_back_to_full_map', async ({ page, open }) => {
   await page.locator('#c-' + rid).click(); assert(await page.locator('.card.out').count() > 0, '链路外的卡先淡出');
   // 淡出一开始链路集合就对了，折叠入口要等 180 ms 后的重排才消失：两个都等
   await expect.poll(ids).toEqual(expected); await expect(page.locator('.foldentry')).toHaveCount(0);
-  assert.match((await page.locator('#scope').textContent())!, /聚焦.*7 张卡/);
+  await expect(page.locator('#reset')).toBeVisible();
   assert.match(await page.locator('#c-' + rid).evaluate(n => getComputedStyle(n).transition), /top/);
   const tops = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.card')].map(n => n.offsetTop)); assert(tops.every(y => y < 1080));
   await page.locator('#c-K' + n).click(); await expect.poll(ids).toEqual([...chain(all, d.edges, 'K' + n)].sort());
   await page.mouse.move(5, 5); await page.keyboard.press('Escape');
   await expect.poll(ids).toEqual(before); await expect(page.locator('.foldentry')).toHaveCount(folds);
-  assert.doesNotMatch((await page.locator('#scope').textContent())!, /聚焦/); assert.deepEqual(state.errors, []);
+  await expect(page.locator('#reset')).toBeHidden(); assert.deepEqual(state.errors, []);
 });
 
 test('owned_cards_without_edges_stay_in_focus', async ({ page, open }) => {
@@ -139,7 +130,7 @@ test('owned_cards_without_edges_stay_in_focus', async ({ page, open }) => {
     x.cards.push(like('S3', 'subgoal', 'S3', '收尾'), like('V10', 'verify', 'S3', '核对合并'), like('K10', 'concl', 'S3', '已收尾'));
     x.edges.push({ f: 'GOAL', t: 'S3', v: '拆成' }, { f: 'V10', t: 'K10', v: '支持' });
   }
-  const state = await open(d); await page.locator('#branch').selectOption('S3');
+  const state = await open(d); await page.locator('#c-S3 .branch').click();
   assert.equal(await page.locator('#edges path.implied').count(), 1, '只给 V10 补一条虚线，K10 顺着 V10 找得到');
   await page.locator('#c-V10 .dtl').click();
   await expect.poll(() => shownIds(page)).toEqual(['GOAL', 'K10', 'S3', 'V10']);
@@ -150,6 +141,5 @@ test('card_click_closes_open_menus', async ({ page, open }) => {
   await open();
   await page.locator('#swBtn').click(); assert.equal(await page.locator('#swMenu.open').count(), 1);
   await page.locator('#c-GOAL').click(); assert.equal(await page.locator('#swMenu.open').count(), 0);
-  await page.locator('#pcAll').click(); await page.locator('#c-S1').click();
-  assert.equal(await page.locator('#pcPanel.open').count(), 0); assert.equal(await page.locator('#c-S1.sel').count(), 1);
+  await page.locator('#c-S1').click(); assert.equal(await page.locator('#c-S1.sel').count(), 1);
 });

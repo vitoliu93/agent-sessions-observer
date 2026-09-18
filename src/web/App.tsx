@@ -1,21 +1,20 @@
 /* 记录数据与当前阅读快照分开；历史、抽屉、地图始终读同一个 view。
    轮询与异步请求要读最新状态，所以状态放在一个可变 store 里，改完调 bump() 重绘。 */
 import { useEffect, useReducer, useRef } from 'react';
-import { ArrowUp, CircleAlert, FolderOpen, Info, Undo2 } from 'lucide-react';
+import { ArrowUp, CircleAlert, FolderOpen, Info } from 'lucide-react';
 import type { Card, DataView, Edge, SessionItem } from '../shared/types.ts';
 import { cardsOf, chain, plan, snapshot, withOwnership, type View } from './lib.ts';
 import Topbar from './components/Topbar.tsx';
 import LiveBar from './components/LiveBar.tsx';
-import SigBar from './components/SigBar.tsx';
 import MapView, { type Emph } from './components/MapView.tsx';
 import Drawer from './components/Drawer.tsx';
-import History, { HistoryButton } from './components/History.tsx';
+import History from './components/History.tsx';
 import ThinkingWheel from './components/ThinkingWheel.tsx';
 
 export interface Store {
   data: DataView | null; pending: DataView | null; sessions: SessionItem[]; curSid: string | null;
   viewTick: number; follow: boolean;
-  selectedId: string | null; hoveredId: string | null; selAgent: string | null;
+  selectedId: string | null; hoveredId: string | null;
   drawerId: string | null; drawerShown: string | null; opener: Element | null; room: boolean;
   branchId: string; expanded: Set<string>;
   /** 地图按哪张卡的链路排版；选中后稍晚跟上，让链路外的卡先淡出 */
@@ -24,20 +23,22 @@ export interface Store {
   /** 正在显示分析中的草稿（还没有第一版正式地图）；fast：分析中每秒拉一次 */
   drafting: boolean; fast: boolean;
   notice: string; stat: string; resyncDisabled: boolean; boot: { show: boolean; msg: string };
-  swOpen: boolean; pcOpen: boolean; pcQuery: string; histOpen: boolean;
+  swOpen: boolean; histOpen: boolean;
   /** 布局稳定（卡片已定位可见）后执行：聚焦、滚动到卡片 */
   after: (() => void)[];
 }
 export type Actions = ReturnType<typeof createActions>;
 /** edges：已按归属补上虚线边，地图、聚焦、详情都用它 */
-export interface AppCtx { s: Store; a: Actions; view: View | null; ready: boolean; all: Card[]; byId: Map<string, Card>; edges: Edge[] }
+export interface AppCtx { s: Store; a: Actions; view: View | null; ready: boolean; all: Card[]; byId: Map<string, Card>; edges: Edge[];
+  /** 顶栏用：是否处在聚焦/分支视图、地图当前在看哪个目标 */
+  focused: boolean; currentGoalId: string | null }
 
 const newStore = (): Store => ({
   data: null, pending: null, sessions: [], curSid: null, viewTick: 0, follow: true,
-  selectedId: null, hoveredId: null, selAgent: null, drawerId: null, drawerShown: null, opener: null, room: false,
+  selectedId: null, hoveredId: null, drawerId: null, drawerShown: null, opener: null, room: false,
   branchId: '', expanded: new Set(), focusId: null, requestN: 0, lastKey: '', drafting: false, fast: false,
   notice: '', stat: '加载中…', resyncDisabled: false, boot: { show: false, msg: '正在读取会话…' },
-  swOpen: false, pcOpen: false, pcQuery: '', histOpen: false, after: [],
+  swOpen: false, histOpen: false, after: [],
 });
 
 const errText = (e: unknown) => e instanceof Error ? e.message : String(e);
@@ -61,13 +62,13 @@ function createActions(s: Store, bump: () => void) {
     bump();
   }
   function resetView() {
-    s.selectedId = s.hoveredId = s.selAgent = null; s.branchId = '';
+    s.selectedId = s.hoveredId = null; s.branchId = '';
     s.expanded.clear(); closeDrawer(false);
   }
   function clearMap(message: string) {
     s.data = null; s.lastKey = ''; s.pending = null; s.drafting = false;
     resetView();
-    s.pcOpen = false; s.boot = { show: true, msg: message };
+    s.boot = { show: true, msg: message };
     bump();
   }
   function adopt(d: DataView, key = `${d.sessionId}:${d.syncN}:${d.updatedAt || ''}`) {
@@ -178,11 +179,7 @@ function createActions(s: Store, bump: () => void) {
     hover(id: string | null) { s.hoveredId = id; bump(); },
     expand(col: number, firstId: string) { s.expanded.add(String(col)); s.after.push(() => $('c-' + firstId)?.focus()); render(); },
     collapse(col: number) { s.expanded.delete(String(col)); render(); },
-    background() { s.selectedId = s.hoveredId = s.selAgent = null; bump(); },
-    toggleAgent(key: string) { s.selAgent = s.selAgent === key ? null : key; s.hoveredId = s.selectedId = null; bump(); },
-    pickAgent(key: string) { s.selAgent = s.selAgent === key ? null : key; s.hoveredId = s.selectedId = null; s.pcOpen = false; bump(); },
-    togglePanel() { s.pcOpen = !s.pcOpen; if (s.pcOpen) s.after.push(() => $('pcSearch')?.focus()); bump(); },
-    query(q: string) { s.pcQuery = q; bump(); },
+    background() { s.selectedId = s.hoveredId = null; bump(); },
     toggleMenu() { s.swOpen = !s.swOpen; bump(); },
     toggleHist() { s.histOpen = !s.histOpen; bump(); },
     // 关系跳转：回到全局、展开目标所在列，再滚开抽屉
@@ -195,16 +192,12 @@ function createActions(s: Store, bump: () => void) {
     key(e: KeyboardEvent) {
       if (e.key !== 'Escape') return;
       if (s.drawerId) closeDrawer();
-      else if (s.pcOpen) { s.pcOpen = false; bump(); $('pcAll')?.focus(); }
       else if (s.swOpen) { s.swOpen = false; bump(); $('swBtn')?.focus(); }
-      else { s.selectedId = s.hoveredId = s.selAgent = null; bump(); }
+      else { s.selectedId = s.hoveredId = null; bump(); }
     },
     docClick(e: MouseEvent) {
       const t = e.target as Element;
-      const closeSw = s.swOpen && !t.closest('.switcher'), closePc = s.pcOpen && !t.closest('.sigbar');
-      if (closeSw) s.swOpen = false;
-      if (closePc) s.pcOpen = false;
-      if (closeSw || closePc) bump();
+      if (s.swOpen && !t.closest('.switcher')) { s.swOpen = false; bump(); }
     },
   };
 }
@@ -242,39 +235,30 @@ export default function App() {
   s.branchId = p.branch;
   if (s.drawerId && s.drawerId !== '__LIVE__' && s.drawerId !== '__INFO__' && !byId.has(s.drawerId)) { s.drawerId = null; s.room = false; }
 
-  // 高亮：选中看整条链路；没选中时悬停看直接关系；选参与者看其署名卡。
+  // 高亮：选中看整条链路；没选中时悬停看直接关系。
   // 聚焦时不理会悬停：卡片重排后会滑到鼠标下，跟着变高亮会乱
-  const hover = chainIds || s.selAgent ? null : s.hoveredId, active = !!(hover || chainIds || s.selAgent);
-  const ids = hover ? new Set([hover]) : chainIds || new Set(all.filter(c => (c.sig || []).some(g => g.agent === s.selAgent)).map(c => c.id));
-  const direct = (e: Edge) => hover ? e.f === hover || e.t === hover : chainIds ? chainIds.has(e.f) && chainIds.has(e.t) : ids.has(e.f) || ids.has(e.t);
+  const hover = chainIds ? null : s.hoveredId, active = !!(hover || chainIds);
+  const ids: Set<string> = hover ? new Set([hover]) : chainIds || new Set();
+  const direct = (e: Edge) => hover ? e.f === hover || e.t === hover : !!chainIds && chainIds.has(e.f) && chainIds.has(e.t);
   const hl = new Set(ids);
   if (hover) for (const e of edges) if (direct(e)) { hl.add(e.f); hl.add(e.t); }
   const emph: Emph = { active, hl, direct, out: chainIds, groups: new Set([...hl].map(id => p.cardGroup.get(id)).filter((g): g is string => !!g)) };
 
-  const app: AppCtx = { s, a, view, ready, all, byId, edges };
+  // 地图当前在看哪个目标：只剩一个目标时才算，概览摆着全部目标时没有「当前」
+  const goalsShown = p.cols[0].filter(c => c.type === 'goal');
+  const currentGoalId = goalsShown.length === 1 ? goalsShown[0].id : null;
+  const focused = !!(focusSet || p.branch);
+  const app: AppCtx = { s, a, view, ready, all, byId, edges, focused, currentGoalId };
   const note = ready ? [s.drafting ? '生成中：已出现的内容可能变化。' : '',
     view!.coverage?.truncated || view!.coverage?.missing.length ? view!.coverage.note : '',
     (view!.children || []).some(c => ['no-file', 'ambiguous'].includes(c.matched) || c.events === 0) ?
       '部分子会话未定位或归属不确定，不代表完整覆盖。' : ''].filter(Boolean).join(' ') : '';
-  const focused = !!(focusSet || s.selAgent || p.branch);
 
   return (<>
     <Topbar app={app} />
     <main className="min-w-0 px-5 pt-6 pb-14 sm:px-7">
       <div className={s.drawerId ? "lg:mr-120" : undefined}>
       <LiveBar app={app} />
-      <div className="toolbar mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <h1 className="text-base font-semibold">解决路径</h1>
-        <select id="branch" className="field max-w-60" aria-label="查看目标" disabled={!ready} value={p.branch} onChange={e => a.branch(e.target.value)}>
-          <option value="">全部目标</option>
-          {all.filter(c => c.type === 'goal').length > 1 && all.filter(c => c.type === 'goal').map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-          {all.filter(c => c.type === 'subgoal').map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-          {p.unassigned > 0 && <option value="__unassigned__">{`归属待确认 · ${p.unassigned} 条`}</option>}
-        </select>
-        <button id="reset" className="btn text-muted" disabled={!ready} hidden={!focused} onClick={() => a.reset()}><Undo2 className="size-3.5" />重置视图</button>
-        <div className="ml-auto flex items-center gap-1"><SigBar app={app} /><HistoryButton app={app} /></div>
-      </div>
-      <p id="scope" className="mb-3 text-xs text-muted" hidden={!focused}>{focusSet ? `聚焦「${byId.get(s.focusId!)!.title}」的前后链路 · ${focusSet.size} 张卡 · Esc 退出` : s.selAgent ? `仅突出 ${s.selAgent} 的署名记录` : p.branch ? '正在查看所选分支' : ''}</p>
       <History app={app} />
       <button id="pending" className="btn btn-outline mb-3 text-accent" hidden={!s.pending} onClick={() => a.takePending()}><ArrowUp className="size-3.5" />{s.pending ? `有新摘要 #${s.pending.syncN} · 点击更新` : ''}</button>
       <div id="notice" className="mb-3 flex items-start gap-2 rounded-md border border-warning/25 bg-paper p-3 text-[13px] text-warning wrap-anywhere" hidden={!s.notice} role="status" aria-live="polite"><CircleAlert className="mt-0.5" />{s.notice}</div>

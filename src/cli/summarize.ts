@@ -136,7 +136,7 @@ export function runModel(prompt: string, { cli = 'codex', model, provider, timeo
     } else if (cli === 'pi') {
       // 开放 read, bash, grep 做交叉验证；禁用所有外部技能与扩展，无痕运行
       args = [
-        '-p', '--mode', 'json',
+        '-p', '--mode', 'json', '--thinking', 'medium',
         '--tools', 'read,bash,grep',
         '--no-skills', '--no-extensions', '--no-prompt-templates', '--no-context-files',
         '--no-session',
@@ -168,8 +168,11 @@ export function runModel(prompt: string, { cli = 'codex', model, provider, timeo
         send({ method: 'initialized' });
         send({ id: 2, method: 'thread/start', params: { model: model || null, cwd, sandbox: 'read-only', approvalPolicy: 'never', ephemeral: true, developerInstructions: SYSTEM } });
       } else if (m.id === 2) {
-        send({ id: 3, method: 'turn/start', params: { threadId: m.result.thread.id, input: [{ type: 'text', text: prompt, text_elements: [] }] } });
-      } else if (m.method === 'item/reasoning/delta' && params.delta) {
+        // summary 打开思考摘要流（默认关闭，收不到任何 reasoning 事件）；归纳是信息重排不是解题，effort 固定 medium 不跟随用户 config
+        send({ id: 3, method: 'turn/start', params: { threadId: m.result.thread.id, summary: 'detailed', effort: 'medium', input: [{ type: 'text', text: prompt, text_elements: [] }] } });
+      } else if (m.method === 'item/reasoning/summaryPartAdded') {
+        if (thinking) thinking += '\n\n';        // 新一段摘要，不空行两段标题会连成一句
+      } else if ((m.method === 'item/reasoning/summaryTextDelta' || m.method === 'item/reasoning/textDelta') && params.delta) {
         thinking += params.delta;
         onThinking?.(thinking, params.delta);
       } else if (m.method === 'item/agentMessage/delta') {
@@ -267,9 +270,13 @@ function bad(message: string): never { throw new Error(`bad map: ${message}`); }
 
 type NormalizedCard = Card & Required<Pick<Card, 'ev' | 'facts' | 'notes' | 'steps' | 'goalId'>>;
 
-/** 严格校验 LLM 输出。结构坏图抛错，调用方保留上次成功图；单张坏卡/坏署名/坏连线只丢弃并写明。 */
+/** 校验 LLM 输出。只有「不是对象」和「没有一个合法目标」才抛错，调用方保留上次成功图；缺段、坏卡、坏署名、坏连线都只丢弃并写明。 */
 export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?: string; agentKeys?: string[] } = {}): MapResult & { cards: NormalizedCard[] } {
-  if (!map || typeof map !== 'object' || !Array.isArray(map.cards) || !Array.isArray(map.edges)) bad(`cards and edges must be arrays (got keys: ${map && typeof map === 'object' ? Object.keys(map).join(',').slice(0, 120) : typeof map})`);
+  if (!map || typeof map !== 'object' || Array.isArray(map)) bad(`map must be an object (got ${Array.isArray(map) ? 'array' : typeof map})`);
+  // 模型漏写整段（cards / edges）不作废整版地图：按空处理，在说明里写明少了什么
+  const rawCards: any[] = Array.isArray(map.cards) ? map.cards : [];
+  const rawEdges: any[] = Array.isArray(map.edges) ? map.edges : [];
+  const missing = [Array.isArray(map.cards) ? '' : 'cards', Array.isArray(map.edges) ? '' : 'edges'].filter(Boolean);
   // 目标可以有多个；兼容旧格式的单个 goal 对象
   const rawGoals: any[] = (Array.isArray(map.goals) ? map.goals : map.goal ? [map.goal] : []).map((g: any) => g && typeof g === 'object' ? { ...g, type: 'goal' } : g);
   // 未知署名只丢这一条并在系统说明里写明，不冒认来源，也不因一处错名作废整版地图
@@ -283,7 +290,7 @@ export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?:
   const hints = new Map<string, { zone: string; zoneId: string }>();   // 模型的旧兼容归属字段，只用于折算 goalId
   // 单张卡的问题只影响这张卡：状态不合法记为 unknown，类型/标题/ID 不合法或重复就丢弃并计数
   let droppedCards = 0;
-  const all: NormalizedCard[] = [...rawGoals, ...map.cards].flatMap((raw: any): NormalizedCard[] => {
+  const all: NormalizedCard[] = [...rawGoals, ...rawCards].flatMap((raw: any): NormalizedCard[] => {
     if (!raw || typeof raw !== 'object' || !isString(raw.id) || !/^[A-Za-z0-9_-]{1,100}$/.test(raw.id) || /^(fold-|__)/.test(raw.id) || seen.has(raw.id)
       || !TYPES.has(raw.type) || !isString(raw.title) || !raw.title.trim()) { droppedCards++; return []; }
     seen.add(raw.id);
@@ -307,14 +314,14 @@ export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?:
   const byId = new Map<string, Card>(all.map((c): [string, Card] => [c.id, c]));
   // 连线是模型推断：不合规或重复的只丢弃并计数，不补造、不作废整版
   const seenEdge = new Set<string>();
-  const edges: Edge[] = map.edges.filter((e: any) => {
+  const edges: Edge[] = rawEdges.filter((e: any) => {
     if (!e || !isString(e.f) || !isString(e.t) || !isString(e.v) || e.f === e.t || !byId.has(e.f) || !byId.has(e.t)) return false;
     const rule = EDGE_RULES[e.v], key = `${e.f}>${e.t}>${e.v}`;
     if (!rule || !rule[0].includes(byId.get(e.f)!.type) || !rule[1].includes(byId.get(e.t)!.type) || seenEdge.has(key)) return false;
     seenEdge.add(key);
     return true;
   }).map((e: any) => ({ f: e.f, t: e.t, v: e.v as Verb }));
-  const droppedEdges = map.edges.length - edges.length;
+  const droppedEdges = rawEdges.length - edges.length;
   const subgoals = cards.filter(c => c.type === 'subgoal');
   const notProof = new Set(transcript ? [...transcript.matchAll(/(?:👤 USER:|💭) ?(\[[^\]\n]+:\d+\])/g)].map(m => m[1]) : []);
   for (const c of all) {
@@ -341,6 +348,7 @@ export function normalizeMap(map: any, { transcript, agentKeys }: { transcript?:
   // 进展只是摘要：留下文字字段，列表用分号连起来，其余丢掉
   const liveIn = map.live && typeof map.live === 'object' && !Array.isArray(map.live) ? map.live : {};
   const live: Live = Object.fromEntries(Object.entries(liveIn).map(([k, v]) => [k, isString(v) ? v : stringArray(v) ? v.join('；') : null]).filter(([, v]) => v !== null));
-  const note = [(isString(map.note) ? map.note : '').replace(/[。；;.\s]+$/, ''), droppedCards && `丢弃 ${droppedCards} 张不合规卡片`, droppedEdges && `丢弃 ${droppedEdges} 条不合规连线`].filter(Boolean).join('；');
+  const note = [(isString(map.note) ? map.note : '').replace(/[。；;.\s]+$/, ''), missing.length && `模型没有输出 ${missing.join(' 和 ')}`,
+    droppedCards && `丢弃 ${droppedCards} 张不合规卡片`, droppedEdges && `丢弃 ${droppedEdges} 条不合规连线`].filter(Boolean).join('；');
   return { goals, cards, edges, live: { ...live }, note };
 }

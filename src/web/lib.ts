@@ -105,7 +105,7 @@ export function withOwnership(all: Card[], edges: Edge[]): Edge[] {
 /**
  * 选中卡的前后链路。地图从左到右是 目标 → 子目标 → 修改/问题 → 验证 → 结论/缺口，
  * 所以「前面」沿列号不增的关系往左找，「后面」沿列号不减的关系往右找，不管边的箭头方向。
- * 目标之间的接着/推翻只算选中卡自己的直接关系，不顺着展开别的目标。
+ * 目标之间的接着/推翻是需求的先后，不是解决链路，交给顶部目标条，不进这里。
  * ponytail: 同列可以互相走（修改 ↔ 问题），共用一个问题的兄弟修改也会被带进来；嫌多再按边方向收紧
  */
 export function chain(all: Card[], edges: Edge[], id: string): Set<string> {
@@ -118,10 +118,9 @@ export function chain(all: Card[], edges: Edge[], id: string): Set<string> {
       for (const e of edges) {
         const next = e.f === cur ? e.t : e.t === cur ? e.f : '', card = byId.get(next);
         if (!card || seen.has(next) || (colIdx(card) - col) * dir < 0) continue;
-        const goals = col === 0 && colIdx(card) === 0;
-        if (goals && cur !== id) continue;
+        if (col === 0 && colIdx(card) === 0) continue;   // 目标之间的边只属于目标条
         result.add(next); seen.add(next);
-        if (!goals) queue.push(next);
+        queue.push(next);
       }
     }
   }

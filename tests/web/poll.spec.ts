@@ -67,9 +67,9 @@ test('poll_preserves_session_menu_focus', async ({ page, open }) => {
 
 test('history_without_selected_branch_resets_to_overview', async ({ page, open }) => {
   const d = fixture(); d.history[0].cards = d.history[0].cards.filter(c => c.id !== 'S2'); await open(d);
-  await page.locator('#branch').selectOption('S2');
+  await page.locator('#c-S2 .branch').click();
   await page.locator('#histBtn').click(); await page.locator('#hslider').fill('1');
-  assert.equal(await page.locator('#branch').inputValue(), ''); assert(await page.locator('.card').count() > 1);
+  await expect(page.locator('#reset')).toBeHidden(); assert(await page.locator('.card').count() > 1);
 });
 
 test('draft_renders_progressively', async ({ page, open }) => {

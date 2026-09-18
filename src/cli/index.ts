@@ -3,6 +3,7 @@
 // 支持同时观察多个 session，Header 下拉切换；POST /api/sessions/add 可在 UI 里追加。
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -131,6 +132,16 @@ class Observer {
     }
     this.controller = new AbortController();
     let transcriptInfo: ReturnType<typeof buildTranscriptDetailed>, raw: unknown;
+    let rawText = '', dropped = '';   // 模型正文；dropped 是被后来的消息整个覆盖掉的那一份
+    /** 归纳失败时把模型原始正文落盘：只有它能还原模型到底吐了什么，报错信息里带上路径 */
+    const dumpRaw = (e: Error): Error => {
+      if (!rawText && !dropped) return e;
+      try {
+        const f = path.join(os.tmpdir(), `obs-failed-${short(this.sessionId || this.prefix)}-${Date.now()}.txt`);
+        fs.writeFileSync(f, (dropped ? `## 被覆盖的正文（${dropped.length} 字）\n${dropped}\n\n` : '') + `## 最终正文（${rawText.length} 字）\n${rawText}`);
+        return new Error(`${e.message}；原始输出已存到 ${f}`);
+      } catch { return e; }
+    };
     // 预算按字符算，中文 token 更密；模型报超长就缩预算重试，并记住能放下的预算
     for (this.budget ??= BUDGET; ; this.budget = Math.floor(this.budget * 0.6)) {
       transcriptInfo = buildTranscriptDetailed(host, tree.children, this.budget);
@@ -138,9 +149,13 @@ class Observer {
       log(`调用 ${CLI}${MODEL ? `（${MODEL}）` : ''} 归纳：输入 ${prompt.length} 字${transcriptInfo.coverage.truncated ? '，部分记录已截断' : ''}`);
       const tx = transcriptInfo.text, callStart = Date.now();
       this.draft = { goals: [], cards: [], edges: [], live: {}, chars: 0, startedAt: new Date().toISOString(), thinking: '', toolCalls: [] };
+      rawText = ''; dropped = '';
       let parsedAt = 0;
       const onText = (text: string) => {
         if (!this.draft) return;
+        // 正文只会变长；变短说明 CLI 用新一条消息整个覆盖了旧正文，旧的那份要留住才能复盘
+        if (text.length < rawText.length) { dropped = rawText; log(`正文被覆盖：${rawText.length} 字 → ${text.length} 字`); }
+        rawText = text;
         this.draft.chars = text.length;
         if (Date.now() - parsedAt < 500) return;   // ponytail: 半截 JSON 每 0.5 秒最多解析一次
         parsedAt = Date.now();
@@ -185,10 +200,12 @@ class Observer {
         });
         break;
       }
-      catch (e) { if (!/prompt is too long|context.{0,20}(length|window|limit)|too many tokens/i.test((e as Error).message) || this.budget < 20000 || this.removed) throw e; log(`prompt too long, budget ${this.budget} → ${Math.floor(this.budget * 0.6)}`); }
+      catch (e) { if (!/prompt is too long|context.{0,20}(length|window|limit)|too many tokens/i.test((e as Error).message) || this.budget < 20000 || this.removed) throw dumpRaw(e as Error); log(`prompt too long, budget ${this.budget} → ${Math.floor(this.budget * 0.6)}`); }
       finally { clearInterval(beat); }
     }
-    const map = normalizeMap(raw, { transcript: transcriptInfo.text, agentKeys });
+    let map: ReturnType<typeof normalizeMap>;
+    try { map = normalizeMap(raw, { transcript: transcriptInfo.text, agentKeys }); }
+    catch (e) { throw dumpRaw(e as Error); }
     if (this.removed) return;
     // 失败前绝不修改任何可见状态或已消费签名。成功 tick 从 1 开始。
     const tick = this.syncN + 1;
@@ -211,7 +228,7 @@ class Observer {
     if (!partial || !this.draft) return;
     dropHalfIds(partial);
     try {
-      const m = normalizeMap({ ...partial, cards: Array.isArray(partial.cards) ? partial.cards : [], edges: Array.isArray(partial.edges) ? partial.edges : [] }, { transcript, agentKeys });
+      const m = normalizeMap(partial, { transcript, agentKeys });
       if (m.goals.length + m.cards.length < this.draft.goals.length + this.draft.cards.length) return;
       Object.assign(this.draft, { goals: m.goals, cards: m.cards, edges: m.edges, live: m.live });
     } catch {}

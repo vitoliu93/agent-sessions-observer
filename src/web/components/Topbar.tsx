@@ -1,12 +1,16 @@
 import { useRef } from 'react';
-import { Check, ChevronsUpDown, CircleAlert, LoaderCircle, PanelsTopLeft, Plus, RefreshCw, X } from 'lucide-react';
+import { Check, ChevronsUpDown, CircleAlert, LoaderCircle, PanelsTopLeft, Plus, RefreshCw, Undo2, X } from 'lucide-react';
 import type { AppCtx } from '../App.tsx';
+import GoalTimeline from './GoalTimeline.tsx';
+import { HistoryButton } from './History.tsx';
 
-export default function Topbar({ app: { s, a, ready } }: { app: AppCtx }) {
+export default function Topbar({ app }: { app: AppCtx }) {
+  const { s, a, ready, focused } = app;
   const input = useRef<HTMLInputElement>(null);
   const cur = s.curSid || s.data?.sessionId || null, current = s.sessions.find(x => x.sid === cur);
   const StateIcon = s.fast ? LoaderCircle : s.notice ? CircleAlert : Check;
-  return <header className={`relative z-60 flex min-h-15 flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-paper px-5 py-3 sm:px-7 ${s.drawerId ? "lg:pr-[508px]" : ""}`}>
+  return <header className={`sticky top-0 z-60 border-b border-line bg-paper ${s.drawerId ? "lg:pr-[508px]" : ""}`}>
+    <div className="relative flex min-h-15 flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3 sm:px-7">
     <div className="flex items-center gap-2 whitespace-nowrap text-[15px] font-semibold"><PanelsTopLeft className="size-5" />观察台</div>
     <span className="hidden text-line sm:block" aria-hidden="true">/</span>
     <div className="switcher relative min-w-0 max-w-[min(52vw,420px)]">
@@ -35,7 +39,11 @@ export default function Topbar({ app: { s, a, ready } }: { app: AppCtx }) {
         {!s.fast && <StateIcon className="size-3.5" />}
         <span id="stat" className="text-xs max-sm:sr-only">{s.follow ? s.stat : `历史快照 · #${s.viewTick}`}</span>
       </button>
+      <button id="reset" className="btn text-muted" disabled={!ready} hidden={!focused} onClick={() => a.reset()}><Undo2 className="size-3.5" />重置视图</button>
+      <HistoryButton app={app} />
       <button className="btn btn-outline" id="btnResync" disabled={s.resyncDisabled} onClick={() => a.resync()}><RefreshCw className={`size-3.5 ${s.fast ? 'animate-spin' : ''}`} />同步</button>
     </div>
+    </div>
+    <GoalTimeline app={app} />
   </header>;
 }

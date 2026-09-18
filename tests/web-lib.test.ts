@@ -24,8 +24,8 @@ test('withOwnership 只按 goalId 补虚线，顺着已有边能找到子目标�
   assert.equal(withOwnership(all, edges).length, edges.length);
 });
 
-test('chain 取前后整条链路，不顺着目标串到别的目标', () => {
+test('chain 取前后整条链路；目标之间的先后不进链路，交给顶部目标条', () => {
   assert.deepEqual([...chain(all, edges, 'C1')].sort(), ['C1', 'G1', 'K1', 'S1', 'V1']);
   assert.deepEqual([...chain(all, edges, 'X')].sort(), ['G1', 'X']);
-  assert.deepEqual([...chain(all, edges, 'G1')].sort(), ['C1', 'G1', 'G2', 'K1', 'R1', 'S1', 'V1', 'X']);
+  assert.deepEqual([...chain(all, edges, 'G1')].sort(), ['C1', 'G1', 'K1', 'R1', 'S1', 'V1', 'X']);   // 接着做的 G2 不在里面
 });

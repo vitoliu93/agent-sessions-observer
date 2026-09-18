@@ -77,7 +77,7 @@ export default function MapView({ app, plan, emph, edges }: { app: AppCtx; plan:
     <div className={`wrap${emph.active ? ' focusmode' : ''}`} id="wrap" ref={wrapRef} style={{ height: layout.height, transition: placed.current.size ? undefined : 'none' }}
       onClick={e => { if (e.target === wrapRef.current || (e.target as Element).id === 'edges') a.background(); }}>
       {/* 排版一变就重建连线层，让连线等卡片滑到位后再淡入 */}
-      <Edges key={layout.n} ready={ready} W={W} H={Math.max(0, layout.height - 2)} edges={edges} byId={byId} pos={layout.pos}
+      <Edges key={layout.n} ready={ready} W={W} H={Math.max(0, layout.height - 2)} gap={GAP} edges={edges} byId={byId} pos={layout.pos}
         cardGroup={plan.cardGroup} emph={emph} />
       {ready && plan.cols.map((pool, i) => <Fragment key={i}>
         <div className="colhead flex h-8 items-start justify-between gap-1 border-b border-line text-xs text-muted" style={{ left: x(i), width: cw }}>

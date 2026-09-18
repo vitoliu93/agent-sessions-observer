@@ -56,6 +56,39 @@ import fs from 'node:fs'; const n=(Number(fs.existsSync(process.env.COUNT)&&fs.r
   } finally { proc.kill(); await proc.exited; fs.rmSync(tmp,{recursive:true,force:true}); }
 });
 
+test('HTTP: 模型漏写整段不作废整版；归纳失败把原始正文落盘', { timeout: 15000 }, async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-http-'));
+  const sid = 'session-d';
+  const sessionDir = path.join(tmp, '.claude/projects/p'); fs.mkdirSync(sessionDir, { recursive: true });
+  const session = path.join(sessionDir, `${sid}.jsonl`);
+  fs.writeFileSync(session, JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:00:00Z', message: { content: 'please test' } }) + '\n');
+  const cli = path.join(tmp, 'fake-model.mjs'), count = path.join(tmp, 'count');
+  fs.writeFileSync(cli, `#!/usr/bin/env bun
+import fs from 'node:fs'; const n=(Number(fs.existsSync(process.env.COUNT)&&fs.readFileSync(process.env.COUNT,'utf8'))||0)+1; fs.writeFileSync(process.env.COUNT,String(n));
+if(n===1){console.log(JSON.stringify({goals:[{id:'G1',title:'目标',acc:[],sig:[]}],live:{now:'x'},note:'半张图'}));process.exit(0);}
+console.log('模型这次没吐 JSON，只说了一句话');`);
+  fs.chmodSync(cli, 0o755);
+  const port = 46000 + Math.floor(Math.random() * 1000);
+  const proc = Bun.spawn(['bun', 'src/cli/index.ts', '--port', String(port), '--interval', '0.1', '--cli', cli], { cwd: root, env: { ...process.env, HOME: tmp, COUNT: count }, stdout: 'pipe', stderr: 'pipe' });
+  let dumpFile = '';
+  try {
+    await until(async () => (await fetch(`http://127.0.0.1:${port}/api/sessions`).catch(() => null))?.ok);
+    await fetch(`http://127.0.0.1:${port}/api/sessions/add`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: sid }) });
+    // 只有 goals，没有 cards / edges：照样出图，说明里写明少了什么
+    const first = await until(async () => { const x = await (await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`)).json(); return x.syncN === 1 && x; });
+    assert.deepEqual([first.goals.length, first.cards.length, first.edges.length], [1, 0, 0]);
+    assert.match(first.note, /模型没有输出 cards 和 edges/);
+    // 下一轮吐不出 JSON：原始正文落盘，报错信息带路径，上一版地图保留
+    fs.appendFileSync(session, JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:01:00Z', message: { content: 'new input' } }) + '\n');
+    const failed = await until(async () => { const x = await (await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`)).json(); return x.lastError && x; });
+    assert.match(failed.lastError, /原始输出已存到 \S*obs-failed-/);
+    dumpFile = failed.lastError.match(/已存到 (\S+)/)![1];
+    assert.match(fs.readFileSync(dumpFile, 'utf8'), /模型这次没吐 JSON/);
+    assert.equal(failed.syncN, 1);
+    assert.equal(failed.goals.length, 1);
+  } finally { proc.kill(); await proc.exited; fs.rmSync(tmp, { recursive: true, force: true }); if (dumpFile) fs.rmSync(dumpFile, { force: true }); }
+});
+
 test('HTTP: 模型报提示过长时缩预算重试，stdout 错误进入 lastError', { timeout: 15000 }, async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-http-'));
   const sid = 'session-long', dir = path.join(tmp, '.claude/projects/p'); fs.mkdirSync(dir, { recursive: true });

@@ -1,4 +1,4 @@
-// 详情抽屉：键盘打开关闭、关系跳转、参与者面板、抽屉不遮住定位到的卡
+// 详情抽屉：键盘打开关闭、关系跳转、抽屉不遮住定位到的卡
 import assert from 'node:assert/strict';
 import { fixture } from '../frontend-fixture.ts';
 import { expect, test } from './mount.ts';
@@ -13,11 +13,8 @@ test('detail_enter_escape_quotes', async ({ page, open }) => {
   assert((await page.evaluate(() => document.activeElement!.id)).startsWith('c-'));
 });
 
-test('all_agents_and_live_keyboard', async ({ page, open }) => {
+test('live_drawer_keyboard', async ({ page, open }) => {
   await open();
-  await page.locator('#pcAll').click(); assert.equal(await page.locator('.pcrow').count(), 16);
-  await page.locator('#pcSearch').fill('agent-15'); await page.locator('.pcrow').focus(); await page.keyboard.press('Enter');
-  assert.equal(await page.locator('#pcPanel.open').count(), 0);
   await page.locator('.lcell').first().focus(); await page.keyboard.press('Enter');
   assert.equal(await page.locator('#dHead h3').textContent(), '当前进展全文');
 });
