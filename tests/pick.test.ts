@@ -11,7 +11,8 @@ const script = `
 `;
 async function drive(keys: string[]): Promise<{ picked: string | null; screen: string }> {
   let out = '';
-  const proc = Bun.spawn(['bun', '-e', script], { cwd: root, terminal: { cols: 90, rows: 12, data(_t, d) { out += String(d); } } });
+  // 伪终端使用 xterm 按键；不能继承无终端环境的 TERM=dumb。
+  const proc = Bun.spawn(['bun', '-e', script], { cwd: root, env: { ...process.env, TERM: 'xterm-256color' }, terminal: { cols: 90, rows: 12, data(_t, d) { out += String(d); } } });
   await Bun.sleep(600);
   for (const k of keys) { proc.terminal!.write(k); await Bun.sleep(250); }
   await proc.exited;

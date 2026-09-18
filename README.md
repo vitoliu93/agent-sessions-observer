@@ -48,9 +48,17 @@ agent-sessions-obs <id> [<id>…] \
 - 连线有箭头。默认只强调主线与未解决问题；悬停显示直接关系。折叠入口上的边代表组内记录，完整关系在抽屉。
 - 点一张卡（或打开详情）进入聚焦：只留下它前面（往目标方向）和后面（往结论方向）的整条链路，链路上的卡全部展开。链路外的卡先淡出，留下的卡滑到新位置，连线随后淡入。点空白处、按 Esc 或「重置视图」回到完整地图。
 - 模型漏写子目标到卡片的边、但卡上写了归属（goalId）时，补一条虚线「包含」，地图、聚焦和详情都能看到。只认 ID，不按标题猜；草稿生成中不补。
-- 参与者显示摘要和可搜索名单；选择参与者时，折叠入口也会提示其贡献。
+- 参与者收进工具栏的可搜索名单；选择参与者时，折叠入口也会提示其贡献。
 - 同版轮询不重建地图。阅读详情、选中卡片或回放历史时，新摘要先提示“点击更新”，不打断阅读。
 - Enter 打开详情，Esc 关闭；live、折叠入口、参与者、关系均支持键盘。
+
+### 界面风格
+
+浅灰白底、细边线、小圆角；无渐变和多色类型徽章。颜色用于选中、失败和待确认状态。
+
+首屏保留当前工作、待确认事项与解决路径。已证实的完整进展、参与者、历史和同步时间按需打开；输入截断、子会话缺失与同步失败仍直接提示。详情打开时，桌面端历史操作和选中的卡片不会被盖住。
+
+普通布局使用 Tailwind CSS，图标使用 Lucide React；地图坐标、连线与过渡保留少量 CSS。批准样稿和详细约定见 [控制台 UI 方案](docs/advanced-plans/2026-09-18-console-ui/spec.md)。
 
 ### 历史与失败
 
@@ -88,13 +96,15 @@ agent-sessions-obs <id> [<id>…] \
 
 ```sh
 bun install
-bun run dev:web              # 终端 1：前端改动后自动重新打包到 dist-cli/web
+bun run dev:web              # 终端 1：监听 Tailwind 与前端，自动打包到 dist-cli/web
 bun run dev:cli <session-id> # 终端 2：后端改动后自动重启，托管 dist-cli/web
 bun run typecheck            # TypeScript 严格模式检查
 bun run test                 # 后端单元与 HTTP 测试
 bun run build && bun run test:web   # 打包后跑前端浏览器测试
 bun run build && node dist-cli/index.js <session-id>   # 用纯 Node 验证发布产物
 ```
+
+`src/web/styles.css` 是 Tailwind 输入，`styles.generated.css` 是自动生成文件，不提交。开发命令先生成 CSS，再启动两个监听；Ctrl-C 同时关闭。`build:web` 每次重新生成 CSS，不依赖上一次构建。所有样式和图标随包打入静态文件，无 CDN。
 
 目录：`src/shared` 前后端数据契约；`src/cli` 会话解析、归纳与 HTTP 服务；`src/web` React 页面。发布内容只有 `dist-cli/`（`index.js` 与 `web/`）。
 

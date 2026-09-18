@@ -20,7 +20,10 @@ test('history_text_and_drawer', async ({ page, open }) => {
   await page.locator('#c-GOAL .dtl').click(); await page.locator('#histBtn').click(); await page.locator('#hslider').fill('1');
   assert.equal(await page.locator('#c-GOAL h4').textContent(), '旧目标正文');
   assert.equal(await page.locator('#dHead h3').textContent(), '旧目标正文');
+  await page.keyboard.press('Escape');
+  await page.locator('.lcell').click();
   assert.equal(await page.locator('#lvKnown').textContent(), '旧结果');
+  await page.keyboard.press('Escape');
   await page.locator('#hback').click();
   assert.equal(await page.locator('#c-GOAL h4').textContent(), '字体识别提速，判定结果不变');
 });

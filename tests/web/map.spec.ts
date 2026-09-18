@@ -60,6 +60,8 @@ test('edges_do_not_cross_cards', async ({ page, open }) => {
 
 test('no_script_error', async ({ page, open }) => {
   const state = await open();
+  await expect(page.locator('#reset')).toBeHidden();
+  await page.locator('#branch').selectOption('S1');
   await page.locator('#reset').click();
   await page.locator('#branch').selectOption('S2');
   await page.locator('#c-S2 .dtl').click();

@@ -41,7 +41,7 @@ export default function Edges({ ready, W, H, edges, byId, pos, cardGroup, emph }
     const a = pos[edge.f], b = pos[edge.t], right = b.x > a.x, same = a.x === b.x;
     const ax = same || right ? a.x + a.w : a.x, bx = same ? b.x + b.w : right ? b.x : b.x + b.w, ay = a.y + a.h / 2, by = b.y + b.h / 2;
     const exit = ax + (same || right ? 10 : -10), enter = bx + (same ? 10 : right ? -10 : 10), adjacent = !same && Math.abs(a.x - b.x) < a.w + 50;
-    const lane = 55 + (n % 7) * 6;
+    const lane = 39 + (n % 5) * 6;
     const route = same ? `M${ax},${ay}H${exit}V${by}H${bx}` :
       adjacent ? `M${ax},${ay}H${(exit + enter) / 2}V${by}H${bx}` :
       `M${ax},${ay}H${exit}V${lane}H${enter}V${by}H${bx}`;
@@ -53,9 +53,9 @@ export default function Edges({ ready, W, H, edges, byId, pos, cardGroup, emph }
     const label = edge.v + (edge.rels.length > 1 ? ` ×${edge.rels.length}` : '') +
       (edge.f.startsWith('fold-') || edge.t.startsWith('fold-') ? ' · 组内' : '');
     return <Fragment key={key}>
-      <path d={route} fill="none" stroke="#718198" strokeWidth="1.4" markerEnd="url(#arrow)" data-edge="1"
+      <path d={route} fill="none" stroke="#8a9e94" strokeWidth="1.2" markerEnd="url(#arrow)" data-edge="1"
         className={`${main ? 'main' : 'ctx'}${hit ? ' hl' : ''}${edge.v === '包含' ? ' implied' : ''}`} />
-      <text fill="#b6c4d7" textAnchor="middle" x={adjacent || !same ? (exit + enter) / 2 : exit + 14}
+      <text fill="#606f68" textAnchor="middle" x={adjacent || !same ? (exit + enter) / 2 : exit + 14}
         y={adjacent || same ? (ay + by) / 2 : lane - 3} className={hit ? 'hl' : undefined} data-cand={cand ? '1' : undefined}>{label}</text>
     </Fragment>;
   });
@@ -63,7 +63,7 @@ export default function Edges({ ready, W, H, edges, byId, pos, cardGroup, emph }
   return (
     <svg className="edges" id="edges" ref={ref} width={W} height={H}>
       {ready && <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8" /></marker></defs>}
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#8a9e94" /></marker></defs>}
       {views}
     </svg>
   );

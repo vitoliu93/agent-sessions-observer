@@ -7,12 +7,15 @@
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
+    "@tailwindcss/cli": "^4.3.3",
     "@types/bun": "^1.4.2",
     "@types/node": "^22.20.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "lucide-react": "^1.47.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"
   },
   "bin": {
@@ -29,14 +32,15 @@
   "license": "MIT",
   "scripts": {
     "dev:cli": "bun --watch src/cli/index.ts",
-    "dev:web": "bun build src/web/index.html --outdir dist-cli/web --watch",
-    "build:web": "rm -rf dist-cli/web && bun build src/web/index.html --outdir dist-cli/web --production",
+    "dev:web": "bun run build:css && bun scripts/dev-web.ts",
+    "build:web": "bun run build:css && rm -rf dist-cli/web && bun build src/web/index.html --outdir dist-cli/web --production",
     "build:cli": "bun build src/cli/index.ts --target=node --format=esm --outfile=dist-cli/index.js --banner='#!/usr/bin/env node'",
     "build": "bun run build:web && bun run build:cli",
     "typecheck": "tsc --noEmit",
     "test": "bun test --timeout 20000 tests/backend-unit.test.ts tests/backend-http.test.ts tests/web-lib.test.ts tests/pick.test.ts",
     "test:web": "playwright test",
-    "prepublishOnly": "bun run typecheck && bun run build"
+    "prepublishOnly": "bun run typecheck && bun run build",
+    "build:css": "bunx --no-install @tailwindcss/cli -i src/web/styles.css -o src/web/styles.generated.css --minify"
   },
   "type": "module",
   "dependencies": {

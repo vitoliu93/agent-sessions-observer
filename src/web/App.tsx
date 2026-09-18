@@ -1,14 +1,15 @@
 /* 记录数据与当前阅读快照分开；历史、抽屉、地图始终读同一个 view。
    轮询与异步请求要读最新状态，所以状态放在一个可变 store 里，改完调 bump() 重绘。 */
 import { useEffect, useReducer, useRef } from 'react';
+import { ArrowUp, CircleAlert, FolderOpen, Info, Undo2 } from 'lucide-react';
 import type { Card, DataView, Edge, SessionItem } from '../shared/types.ts';
-import { cardsOf, chain, isOpen, plan, snapshot, withOwnership, type View } from './lib.ts';
+import { cardsOf, chain, plan, snapshot, withOwnership, type View } from './lib.ts';
 import Topbar from './components/Topbar.tsx';
 import LiveBar from './components/LiveBar.tsx';
 import SigBar from './components/SigBar.tsx';
 import MapView, { type Emph } from './components/MapView.tsx';
 import Drawer from './components/Drawer.tsx';
-import History from './components/History.tsx';
+import History, { HistoryButton } from './components/History.tsx';
 
 export interface Store {
   data: DataView | null; pending: DataView | null; sessions: SessionItem[]; curSid: string | null;
@@ -93,9 +94,9 @@ function createActions(s: Store, bump: () => void) {
       if (d.historySince) d.history = [...(base?.history || []).filter(h => h.at <= d.historySince), ...d.history];
       s.curSid = d.sessionId || sid;
       const dr = d.analyzing ? d.draft : null, shown = dr ? dr.goals.length + dr.cards.length : 0;
-      const failed = `分析失败：${d.lastError}。稍后会自动重试，也可以点「触发同步」立即重试。`;
+      const failed = `分析失败：${d.lastError}。稍后会自动重试，也可以点「同步」立即重试。`;
       const waiting = !dr?.chars ? '正在生成第一版地图：等模型开始输出…' : `正在生成第一版地图：已收到 ${dr.chars} 字，等第一张卡出现…`;
-      s.boot = { show: !d.syncN && !shown, msg: d.lastError && !d.analyzing ? failed : d.analyzing ? waiting : '尚无摘要，请触发同步。' };
+      s.boot = { show: !d.syncN && !shown, msg: d.lastError && !d.analyzing ? failed : d.analyzing ? waiting : '尚无摘要，请点击同步。' };
       s.stat = d.analyzing ? (shown ? `摘要生成中 · 已出 ${shown} 张卡` : '摘要生成中…') : d.lastError ? '上次同步失败' : `最新 · #${d.syncN}`;
       s.resyncDisabled = !!d.analyzing; s.fast = !!d.analyzing;
       s.notice = d.analyzing ? '' : d.lastError || '';
@@ -131,8 +132,8 @@ function createActions(s: Store, bump: () => void) {
   function openDrawer(id: string) {
     if (!s.data) return tell('尚无摘要可查看。');
     s.opener = document.activeElement; s.drawerId = s.drawerShown = id;
-    if (id !== '__LIVE__') { s.selectedId = s.focusId = id; s.room = true; }
-    s.after.push(() => { $('dClose')?.focus(); if (id !== '__LIVE__') reveal(id); });
+    if (id !== '__LIVE__' && id !== '__INFO__') { s.selectedId = s.focusId = id; s.room = true; }
+    s.after.push(() => { $('dClose')?.focus(); if (id !== '__LIVE__' && id !== '__INFO__') reveal(id); });
     bump();
   }
 
@@ -175,6 +176,7 @@ function createActions(s: Store, bump: () => void) {
       if (e.key !== 'Escape') return;
       if (s.drawerId) closeDrawer();
       else if (s.pcOpen) { s.pcOpen = false; bump(); $('pcAll')?.focus(); }
+      else if (s.swOpen) { s.swOpen = false; bump(); $('swBtn')?.focus(); }
       else { s.selectedId = s.hoveredId = s.selAgent = null; bump(); }
     },
     docClick(e: MouseEvent) {
@@ -218,11 +220,11 @@ export default function App() {
   }, [s.selectedId, s.focusId]);
   const p = plan(all, edges, s.branchId, s.expanded, focusSet);
   s.branchId = p.branch;
-  if (s.drawerId && s.drawerId !== '__LIVE__' && !byId.has(s.drawerId)) { s.drawerId = null; s.room = false; }
+  if (s.drawerId && s.drawerId !== '__LIVE__' && s.drawerId !== '__INFO__' && !byId.has(s.drawerId)) { s.drawerId = null; s.room = false; }
 
   // 高亮：选中看整条链路；没选中时悬停看直接关系；选参与者看其署名卡。
   // 聚焦时不理会悬停：卡片重排后会滑到鼠标下，跟着变高亮会乱
-  const hover = chainIds ? null : s.hoveredId, active = !!(hover || chainIds || s.selAgent);
+  const hover = chainIds || s.selAgent ? null : s.hoveredId, active = !!(hover || chainIds || s.selAgent);
   const ids = hover ? new Set([hover]) : chainIds || new Set(all.filter(c => (c.sig || []).some(g => g.agent === s.selAgent)).map(c => c.id));
   const direct = (e: Edge) => hover ? e.f === hover || e.t === hover : chainIds ? chainIds.has(e.f) && chainIds.has(e.t) : ids.has(e.f) || ids.has(e.t);
   const hl = new Set(ids);
@@ -230,33 +232,43 @@ export default function App() {
   const emph: Emph = { active, hl, direct, out: chainIds, groups: new Set([...hl].map(id => p.cardGroup.get(id)).filter((g): g is string => !!g)) };
 
   const app: AppCtx = { s, a, view, ready, all, byId, edges };
-  const note = ready ? [s.drafting ? '生成中：模型还在输出，已出的卡片可能还会变' : '', view!.note, view!.coverage?.note,
+  const note = ready ? [s.drafting ? '生成中：已出现的内容可能变化。' : '',
+    view!.coverage?.truncated || view!.coverage?.missing.length ? view!.coverage.note : '',
     (view!.children || []).some(c => ['no-file', 'ambiguous'].includes(c.matched) || c.events === 0) ?
-      '部分子会话未定位或归属不确定，不能视作完整覆盖。' : ''].filter(Boolean).join(' · ') : '';
+      '部分子会话未定位或归属不确定，不代表完整覆盖。' : ''].filter(Boolean).join(' ') : '';
+  const focused = !!(focusSet || s.selAgent || p.branch);
 
   return (<>
     <Topbar app={app} />
-    <LiveBar app={app} />
-    <SigBar app={app} />
-    <div className="toolbar">
-      <label>查看 <select id="branch" value={p.branch} onChange={e => a.branch(e.target.value)}>
-        <option value="">全局概览</option>
-        {all.filter(c => c.type === 'goal').length > 1 && all.filter(c => c.type === 'goal').map(c => <option key={c.id} value={c.id}>{`目标 · ${c.title}`}</option>)}
-        {all.filter(c => c.type === 'subgoal').map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-        {p.unassigned > 0 && <option value="__unassigned__">{`归属待确认 · ${p.unassigned} 条`}</option>}
-      </select></label>
-      <span id="scope">{focusSet ? `聚焦「${byId.get(s.focusId!)!.title}」的前后链路 · ${focusSet.size} 张卡 · 点空白处或按 Esc 回到完整地图` : ready ? `${all.filter(c => c.type === 'goal').length} 个目标 · ${all.filter(c => c.type !== 'goal').length} 条记录 · ${all.filter(isOpen).length} 项风险/缺口待解决` +
-        (p.unassigned ? ` · ${p.unassigned} 条归属待确认` : '') : ''}</span>
-      <button id="reset" onClick={() => a.reset()}>重置视图</button>
-      <button id="pending" hidden={!s.pending} onClick={() => a.takePending()}>{s.pending ? `有新摘要 #${s.pending.syncN} · 点击更新` : ''}</button>
-      <span id="notice" role="status" aria-live="polite">{s.notice}</span>
-    </div>
-    <MapView app={app} plan={p} emph={emph} edges={edges} />
-    <div id="notebar">{note}</div>
-    <History app={app} />
+    <main className="min-w-0 px-5 pt-6 pb-8 sm:px-7">
+      <div className={s.drawerId ? "lg:mr-120" : undefined}>
+      <LiveBar app={app} />
+      <div className="toolbar mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <h1 className="text-base font-semibold">解决路径</h1>
+        <select id="branch" className="field max-w-60" aria-label="查看目标" disabled={!ready} value={p.branch} onChange={e => a.branch(e.target.value)}>
+          <option value="">全部目标</option>
+          {all.filter(c => c.type === 'goal').length > 1 && all.filter(c => c.type === 'goal').map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+          {all.filter(c => c.type === 'subgoal').map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+          {p.unassigned > 0 && <option value="__unassigned__">{`归属待确认 · ${p.unassigned} 条`}</option>}
+        </select>
+        <button id="reset" className="btn text-muted" disabled={!ready} hidden={!focused} onClick={() => a.reset()}><Undo2 className="size-3.5" />重置视图</button>
+        <div className="ml-auto flex items-center gap-1"><SigBar app={app} /><HistoryButton app={app} /></div>
+      </div>
+      <p id="scope" className="mb-3 text-xs text-muted" hidden={!focused}>{focusSet ? `聚焦「${byId.get(s.focusId!)!.title}」的前后链路 · ${focusSet.size} 张卡 · Esc 退出` : s.selAgent ? `仅突出 ${s.selAgent} 的署名记录` : p.branch ? '正在查看所选分支' : ''}</p>
+      <History app={app} />
+      <button id="pending" className="btn btn-outline mb-3 text-accent" hidden={!s.pending} onClick={() => a.takePending()}><ArrowUp className="size-3.5" />{s.pending ? `有新摘要 #${s.pending.syncN} · 点击更新` : ''}</button>
+      <div id="notice" className="mb-3 flex items-start gap-2 rounded-md border border-warning/25 bg-paper p-3 text-[13px] text-warning wrap-anywhere" hidden={!s.notice} role="status" aria-live="polite"><CircleAlert className="mt-0.5" />{s.notice}</div>
+      </div>
+      <MapView app={app} plan={p} emph={emph} edges={edges} />
+      <div className="mt-4 flex items-start gap-3 text-xs text-muted">
+        <p id="notebar" className="flex-1 text-warning wrap-anywhere" hidden={!note}>{note}</p>
+        {ready && <button className="btn ml-auto text-xs" onClick={() => a.openDrawer('__INFO__')}><Info className="size-3.5" />数据说明</button>}
+      </div>
+      <section id="boot" className="flex min-h-80 flex-col items-center justify-center gap-3 px-4 text-center" role="status" hidden={!s.boot.show}>
+        <FolderOpen className="size-8 text-muted" /><h2 className="msg max-w-xl text-base font-medium wrap-anywhere">{s.boot.msg}</h2>
+        <button className="btn btn-outline" onClick={() => { a.toggleMenu(); requestAnimationFrame(() => $('swNew')?.focus()); }}>添加或切换会话</button>
+      </section>
+    </main>
     <Drawer app={app} />
-    <div id="boot" role="status" style={s.boot.show ? { display: 'flex' } : undefined}>
-      <div className="msg">{s.boot.msg}</div><div className="steps">可从左上角添加或切换会话。</div>
-    </div>
   </>);
 }

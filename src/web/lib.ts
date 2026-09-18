@@ -6,8 +6,6 @@ export type View = DataView & { at?: number };
 
 export const types: Record<string, string> = { goal: '目标', subgoal: '子目标', change: '修改', risk: '风险',
   verify: '验证', concl: '结论', gap: '缺口', group: '修复过程' };
-export const colors: Record<string, string> = { goal: '#9fc1f7', subgoal: '#9fc1f7', change: '#b7c0cf', risk: '#fde68a',
-  verify: '#7ee6d8', concl: '#86efac', gap: '#9aa3b2', group: '#b7c0cf' };
 export const labels: Record<string, string> = { doing: '进行中', done: '已完成', failed: '失败', partial: '部分证实',
   risk: '待确认', resolved: '已解决', unknown: '状态未知' };
 

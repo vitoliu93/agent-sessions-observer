@@ -1,40 +1,26 @@
-/* 参与者：摘要一行 + 可搜索面板，不铺满横带 */
+import { Check, Users } from 'lucide-react';
 import type { AppCtx } from '../App.tsx';
 import { stateAt } from '../lib.ts';
 
-export default function SigBar({ app: { s, a, view, ready, all } }: { app: AppCtx }) {
+export default function SigBar({ app: { s, a, ready, all } }: { app: AppCtx }) {
   const m = new Map<string, { count: number; doing: boolean }>();
   for (const c of all) for (const g of c.sig || []) {
     const x = m.get(g.agent) || { count: 0, doing: false };
-    x.count++; x.doing ||= stateAt(c) === 'doing';
-    m.set(g.agent, x);
+    x.count++; x.doing ||= stateAt(c) === 'doing'; m.set(g.agent, x);
   }
   const entries = [...m].sort((x, y) => Number(y[1].doing) - Number(x[1].doing) || y[1].count - x[1].count);
-  const q = s.pcQuery.toLowerCase(), found = entries.filter(([k]) => k.toLowerCase().includes(q));
-  return (
-    <div className="sigbar">
-      <span style={{ letterSpacing: 1, fontSize: 10.5, flex: 'none' }}>参与者 <b id="pcN" style={{ color: 'var(--muted)' }}>{m.size}</b></span>
-      <span id="sigchips" style={{ display: 'flex', gap: 8, minWidth: 0, overflow: 'hidden' }}>
-        {entries.slice(0, 3).map(([k, x]) => (
-          <button key={k} className={`sigchip${s.selAgent === k ? ' on' : ''}`} data-k={k} onClick={() => a.toggleAgent(k)}>
-            <span className="label">{k}</span><span className="n">{`${x.count} 项署名`}</span>
-          </button>
-        ))}
-      </span>
-      <span style={{ marginLeft: 'auto', flex: 'none', display: 'flex', gap: 8, alignItems: 'center' }}>
-        <span style={{ fontSize: 10.5 }} id="pcWork">{ready ? `${(view!.children || []).length} 个子会话 · 署名由模型归纳` : ''}</span>
-        <button id="pcAll" style={{ padding: '4px 12px', fontSize: 11 }} onClick={() => a.togglePanel()}>全部参与者</button>
-      </span>
-      <div id="pcPanel" className={s.pcOpen ? 'open' : undefined}>
-        <input id="pcSearch" placeholder="搜索参与者…" spellCheck={false} value={s.pcQuery} onChange={e => a.query(e.target.value)} />
-        <div id="pcList">
-          {ready && (found.length ? found.map(([k, x]) => (
-            <button key={k} className={`pcrow${s.selAgent === k ? ' on' : ''}`} data-k={k} onClick={() => a.pickAgent(k)}>
-              {k}<span className="n">{`${x.count} 项署名${x.doing ? ' · 有进行中的工作' : ''}`}</span>
-            </button>
-          )) : <p>无匹配署名</p>)}
-        </div>
-      </div>
+  const found = entries.filter(([key]) => key.toLowerCase().includes(s.pcQuery.toLowerCase()));
+  return <div className="sigbar relative">
+    <button id="pcAll" className={`btn ${s.selAgent ? 'bg-soft text-accent' : ''}`} disabled={!ready} aria-expanded={s.pcOpen} aria-controls="pcPanel" onClick={() => a.togglePanel()}>
+      <Users />参与者 <span id="pcN" className="text-[11px] text-muted">{m.size}</span>
+    </button>
+    <div id="pcPanel" className={`popover right-0 w-85 max-sm:fixed max-sm:inset-x-3 max-sm:top-20 max-sm:w-auto${s.pcOpen ? ' open' : ''}`} hidden={!s.pcOpen}>
+      <input id="pcSearch" className="field mb-2 w-full" aria-label="搜索参与者" placeholder="搜索参与者…" spellCheck={false} value={s.pcQuery} onChange={e => a.query(e.target.value)} />
+      <div id="pcList">{found.length ? found.map(([key, x]) => <button key={key} className={`pcrow flex w-full items-center gap-2 rounded px-2 py-2 text-left text-[13px] hover:bg-canvas ${s.selAgent === key ? 'on text-accent' : ''}`} data-k={key} onClick={() => a.pickAgent(key)}>
+        <span className="min-w-0 flex-1 wrap-anywhere">{key}</span>{s.selAgent === key && <Check className="size-3.5" />}
+        <span className="shrink-0 text-[11px] text-muted">{x.count} 项{x.doing ? ' · 进行中' : ''}</span>
+      </button>) : <p className="p-3 text-xs text-muted">无匹配署名</p>}</div>
+      <p className="border-t border-line px-2 pt-2 text-[11px] text-muted">署名来自记录归纳，不代表独立核实。</p>
     </div>
-  );
+  </div>;
 }
