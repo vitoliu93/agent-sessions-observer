@@ -1,20 +1,15 @@
 // 纯函数：快照取值、状态、分列与归属。不碰 DOM。
 import type { Card, DataView, Edge, Live, State } from '../shared/types.ts';
 
-/** 当前阅读的快照：历史快照叠在最新数据上 */
-export type View = DataView & { at?: number };
+export type View = DataView;
 
 export const types: Record<string, string> = { goal: '目标', subgoal: '子目标', change: '修改', risk: '风险',
   verify: '验证', concl: '结论', gap: '缺口', group: '修复过程' };
+export const phases: Record<string, string> = { exploring: '在读代码、查资料', editing: '在改文件', verifying: '在跑测试和检查',
+  waiting_user: '在等你回复', stuck: '卡住了' };
 export const labels: Record<string, string> = { doing: '进行中', done: '已完成', failed: '失败', partial: '部分证实',
   risk: '待确认', resolved: '已解决', unknown: '状态未知' };
 
-export function atOrBefore<T extends { at?: number }>(xs: readonly T[] | undefined, t: number): T | null {
-  let best: T | null = null;
-  for (const x of xs || []) if (x.at !== undefined && x.at <= t && (!best || x.at >= best.at!)) best = x;
-  return best;
-}
-/** 快照里的卡就是那一版的状态，不用再按序号回溯 */
 export const stateAt = (c: Card): State => c.st || 'unknown';
 const COL: Record<string, number> = { goal: 0, subgoal: 1, change: 2, risk: 2, group: 2, verify: 3, concl: 4, gap: 4 };
 export const colIdx = (c: Card) => COL[c.type] ?? 2;
@@ -23,10 +18,6 @@ export const isOpen = (c: Card | undefined) =>
 const priority = (c: Card) => isOpen(c) ? 0 : stateAt(c) === 'failed' ? 1 : stateAt(c) === 'doing' ? 2
   : ['verify', 'concl'].includes(c.type) ? 3 : 4;
 
-export function snapshot(d: DataView, t: number): View {
-  const saved = atOrBefore(d.history, t);
-  return saved ? { ...d, ...saved, syncN: d.syncN, history: d.history } : d;
-}
 export const cardsOf = (v: View | null): Card[] => v ? [...(v.goals || []), ...v.cards] : [];
 export const liveValue = (v: View): Live => v.live || {};
 

@@ -1,10 +1,11 @@
 import { X } from 'lucide-react';
 import type { AppCtx } from '../App.tsx';
-import { atOrBefore, colIdx, labels, liveValue, stateAt, types } from '../lib.ts';
+import { colIdx, labels, liveValue, stateAt, types } from '../lib.ts';
 import Status from './Status.tsx';
+import { WEAK_AT } from '../../shared/types.ts';
 
 export default function Drawer({ app: { s, a, view, ready, byId, edges } }: { app: AppCtx }) {
-  const id = s.drawerId ?? s.drawerShown, c = id ? byId.get(id) : undefined, t = s.viewTick;
+  const id = s.drawerId ?? s.drawerShown, c = id ? byId.get(id) : undefined, t = s.data?.syncN ?? 0;
   let head = null, body = null;
   if (ready && id === '__LIVE__') {
     const live = liveValue(view!);
@@ -13,12 +14,11 @@ export default function Drawer({ app: { s, a, view, ready, byId, edges } }: { ap
       <h4 className="section-label first:mt-0">{['正在做', '已证实的范围', '仍需确认'][i]}</h4><p id={key === 'known' ? 'lvKnown' : undefined}>{live[key] || '未知'}</p>
     </section>);
   } else if (ready && id === '__INFO__') {
-    const stamp = atOrBefore(view!.stamps, t);
     head = <h3 id="detailTitle" className="text-base font-semibold">同步详情</h3>;
     body = <>
-      <h4 className="section-label mt-0">当前阅读</h4><p>{s.follow ? '最新摘要' : '历史快照'} · #{t}</p>
-      <h4 className="section-label">数据读到</h4><p id="stData" className="font-mono text-[13px]">{stamp?.data || view!.dataReadAt || '未知'}</p>
-      <h4 className="section-label">摘要生成到</h4><p id="stSum" className="font-mono text-[13px]">{stamp?.summary || view!.updatedAt || '未知'}</p>
+      <h4 className="section-label mt-0">当前阅读</h4><p>第 {t} 版</p>
+      <h4 className="section-label">数据读到</h4><p id="stData" className="font-mono text-[13px]">{view!.dataReadAt || '未知'}</p>
+      <h4 className="section-label">摘要生成到</h4><p id="stSum" className="font-mono text-[13px]">{view!.updatedAt || '未知'}</p>
       <h4 className="section-label">数据说明</h4><p>{view!.note || '未提供额外说明。'}</p>
       {view!.coverage?.note && <p>{view!.coverage.note}</p>}
       {(view!.toolCalls?.length || s.data?.draft?.toolCalls?.length) ? <>
@@ -49,10 +49,12 @@ export default function Drawer({ app: { s, a, view, ready, byId, edges } }: { ap
     const facts = c.facts || [], notes = c.notes || [], steps = c.steps || [], acc = c.acc || [];
     head = <>
       <h3 id="detailTitle" className="text-base font-semibold leading-relaxed">{c.title}</h3>
-      <div className="sub mt-1 text-xs text-muted">{types[c.type] || '记录'} · {s.follow ? '当前' : '历史快照'} #{t}</div>
+      <div className="sub mt-1 text-xs text-muted">{types[c.type] || '记录'} · 第 {t} 版</div>
     </>;
     body = <>
       <Status state={stateAt(c)} type={c.type} />
+      {c.support !== undefined && <p id="support" className={`mt-1 text-xs ${c.support < WEAK_AT ? 'text-warning' : 'text-muted'}`}>快判核对：引用的原文撑得住这张卡的可能 {Math.round(c.support * 100)}%{c.support < WEAK_AT ? '，建议回原始记录查证' : ''}</p>}
+      {c.raw && <><h4 className="section-label">原话</h4><p id="rawTitle" className="text-muted">{c.raw}</p></>}
       {c.sub && <><h4 className="section-label">摘要</h4><p>{c.sub}</p></>}
       <div className="kv"><b>关键事实</b></div>
       <ul>{facts.length ? facts.map((x, i) => <li key={i}>{x}</li>) : <li>暂无事实记录</li>}</ul>

@@ -26,7 +26,7 @@ test('secondary_information_is_available_on_demand', async ({ page, open }) => {
   await open();
   await expect(page.locator('#reset')).toBeHidden();
   await expect(page.locator('#pcPanel')).toBeHidden();
-  await expect(page.locator('#hist')).toBeHidden();
+  assert.equal(await page.locator('#histBtn').count(), 0);   // 不留历史版本
   assert.equal(await page.locator('#sigchips').count(), 0);
   assert.equal(await page.locator('#stData').count(), 0);
   assert.equal(await page.locator('#lvKnown').count(), 0);
@@ -41,21 +41,10 @@ test('secondary_information_is_available_on_demand', async ({ page, open }) => {
   await expect(page.getByRole('button', { name: '查看同步详情' })).toBeFocused();
 });
 
-test('sync_details_use_the_reading_snapshot', async ({ page, open }) => {
-  const d = fixture();
-  d.history[0].stamps = [{ at: 1, data: 'OLD_DATA_TIME', summary: 'OLD_SUMMARY_TIME' }];
-  await open(d);
-  await page.locator('#histBtn').click();
-  await page.locator('#hslider').fill('1');
-  await page.getByRole('button', { name: '查看同步详情' }).click();
-  await expect(page.locator('#stData')).toHaveText('OLD_DATA_TIME');
-  await expect(page.locator('#stSum')).toHaveText('OLD_SUMMARY_TIME');
-  await expect(page.locator('#stat')).toHaveText('历史快照 · #1');
-});
 
 test('coverage_warning_is_not_hidden_in_details', async ({ page, open }) => {
   const d = fixture();
-  for (const snapshot of [d, ...d.history]) {
+  for (const snapshot of [d]) {
     snapshot.coverage = { truncated: true, missing: ['agent-lost'], sessions: [], note: '输入已截断，缺少 agent-lost 的记录。' };
     snapshot.children[0].matched = 'no-file';
   }
@@ -84,16 +73,6 @@ test('header_stays_on_top_while_page_scrolls', async ({ page, open }) => {
   await expect(page.locator('#btnResync')).toBeInViewport();
 });
 
-test('history_controls_remain_clickable_beside_details', async ({ page, open }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await open();
-  await page.locator('#c-GOAL .dtl').click();
-  await page.locator('#histBtn').click();
-  await page.locator('#hslider').fill('1');
-  await expect(page.locator('#dHead h3')).toHaveText('旧目标正文');
-  await page.locator('#hback').click();
-  await expect(page.locator('#dHead h3')).toHaveText(fixture().goals[0].title);
-});
 
 test('map_remeasures_columns_after_window_resize', async ({ page, open }) => {
   await open();

@@ -6,6 +6,10 @@
     "url": "git+https://github.com/vitoliu93/agent-sessions-observer.git"
   },
   "devDependencies": {
+    "@clack/prompts": "^1.8.1",
+    "@typesafe-ai/sdk": "^0.6.0",
+    "partial-json": "^0.1.7",
+    "string-width": "^8.2.2",
     "@playwright/test": "1.63.0",
     "@tailwindcss/cli": "^4.3.3",
     "@types/bun": "^1.4.2",
@@ -37,15 +41,10 @@
     "build:cli": "bun build src/cli/index.ts --target=node --format=esm --outfile=dist-cli/index.js --banner='#!/usr/bin/env node'",
     "build": "bun run build:web && bun run build:cli",
     "typecheck": "tsc --noEmit",
-    "test": "bun test --timeout 20000 tests/backend-unit.test.ts tests/backend-http.test.ts tests/web-lib.test.ts tests/pick.test.ts",
+    "test": "bun test --timeout 20000 tests/backend-unit.test.ts tests/backend-http.test.ts tests/web-lib.test.ts tests/pick.test.ts tests/jev.test.ts",
     "test:web": "playwright test",
     "prepublishOnly": "bun run typecheck && bun run build",
     "build:css": "bunx --no-install @tailwindcss/cli -i src/web/styles.css -o src/web/styles.generated.css --minify"
   },
-  "type": "module",
-  "dependencies": {
-    "@clack/prompts": "^1.8.1",
-    "partial-json": "^0.1.7",
-    "string-width": "^8.2.2"
-  }
+  "type": "module"
 }

@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { Check, ChevronsUpDown, CircleAlert, LoaderCircle, PanelsTopLeft, Plus, RefreshCw, Undo2, X } from 'lucide-react';
 import type { AppCtx } from '../App.tsx';
 import GoalTimeline from './GoalTimeline.tsx';
-import { HistoryButton } from './History.tsx';
+import { phases } from '../lib.ts';
 
 export default function Topbar({ app }: { app: AppCtx }) {
   const { s, a, ready, focused } = app;
@@ -23,7 +23,7 @@ export default function Topbar({ app }: { app: AppCtx }) {
         <div id="swList">{s.sessions.length ? s.sessions.map(x => <div key={x.sid} className={`swrow flex items-center gap-2 rounded-[5px] p-1 ${x.sid === cur ? 'active bg-soft' : 'hover:bg-canvas'}`}>
           <button className="sid min-w-0 flex-1 px-2 py-1 text-left" data-sid={x.sid} title={x.sid} onClick={() => a.switchTo(x.sid)}>
             {x.title && <span className="ttl block truncate text-[13px] font-medium">{x.title}</span>}
-            <span className="block font-mono text-[11px] text-muted">{x.short || x.sid.slice(0, 8)} · #{x.syncN}</span>
+            <span className="block font-mono text-[11px] text-muted">{x.short || x.sid.slice(0, 8)} · #{x.syncN}{x.phase ? ` · ${phases[x.phase]}` : ''}</span>
           </button>
           <span className="meta shrink-0 text-[11px] text-muted">{x.cards} 卡</span>
           <button className="rm btn px-1 text-muted hover:text-danger" data-rm={x.sid} aria-label={`停止观察 ${x.short || x.sid}`} onClick={() => a.remove(x.sid)}><X className="size-3.5" /></button>
@@ -37,10 +37,9 @@ export default function Topbar({ app }: { app: AppCtx }) {
     <div className="ml-auto flex items-center gap-2">
       <button className="btn text-muted" disabled={!ready} onClick={() => a.openDrawer('__INFO__')} aria-label="查看同步详情">
         {!s.fast && <StateIcon className="size-3.5" />}
-        <span id="stat" className="text-xs max-sm:sr-only">{s.follow ? s.stat : `历史快照 · #${s.viewTick}`}</span>
+        <span id="stat" className="text-xs max-sm:sr-only">{s.stat}</span>
       </button>
       <button id="reset" className="btn text-muted" disabled={!ready} hidden={!focused} onClick={() => a.reset()}><Undo2 className="size-3.5" />重置视图</button>
-      <HistoryButton app={app} />
       <button className="btn btn-outline" id="btnResync" disabled={s.resyncDisabled} onClick={() => a.resync()}><RefreshCw className={`size-3.5 ${s.fast ? 'animate-spin' : ''}`} />同步</button>
     </div>
     </div>

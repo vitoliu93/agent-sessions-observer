@@ -3,7 +3,7 @@ import type { Coverage, CoverageSession } from '../shared/types.ts';
 import type { SessionEvent } from './parse.ts';
 
 /** 分段只需要这些字段 */
-export type SegEvent = Pick<SessionEvent, 'type' | 'text' | 'blocks'> & Partial<Pick<SessionEvent, 'ts' | 'line' | 'side'>>;
+export type SegEvent = Pick<SessionEvent, 'type' | 'text' | 'blocks'> & Partial<Pick<SessionEvent, 'ts' | 'line' | 'side' | 'meta'>>;
 export interface SegHost { sessionId: string; file?: string; events: SegEvent[] }
 export interface SegChild { key: string; kind: string; label: string; sessionId?: string | null; file?: string | null; matched?: string; events?: SegEvent[] }
 

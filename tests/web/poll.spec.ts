@@ -1,4 +1,4 @@
-// 轮询与快照：阅读中不替换、历史回放、草稿渐进、错误恢复
+// 轮询与当前快照：阅读中不替换、草稿渐进、错误恢复
 import assert from 'node:assert/strict';
 import type { DataView } from '../../src/shared/types.ts';
 import { fixture } from '../frontend-fixture.ts';
@@ -15,23 +15,11 @@ test('poll_keeps_dom_and_focus', async ({ page, open }) => {
   assert(await page.evaluate(n => n === document.querySelector('#c-GOAL'), original));
 });
 
-test('history_text_and_drawer', async ({ page, open }) => {
-  await open();
-  await page.locator('#c-GOAL .dtl').click(); await page.locator('#histBtn').click(); await page.locator('#hslider').fill('1');
-  assert.equal(await page.locator('#c-GOAL h4').textContent(), '旧目标正文');
-  assert.equal(await page.locator('#dHead h3').textContent(), '旧目标正文');
-  await page.keyboard.press('Escape');
-  await page.locator('.lcell').click();
-  assert.equal(await page.locator('#lvKnown').textContent(), '旧结果');
-  await page.keyboard.press('Escape');
-  await page.locator('#hback').click();
-  assert.equal(await page.locator('#c-GOAL h4').textContent(), '字体识别提速，判定结果不变');
-});
 
 test('pending_updates_do_not_replace_reading', async ({ page, open }) => {
   const state = await open(); await page.locator('#c-GOAL .dtl').click();
   state.data = structuredClone(state.data!); state.data.syncN = 3; state.data.updatedAt = 'new';
-  const snap = structuredClone(state.data.history[1]); snap.at = 3; snap.goals[0].title = '最新目标'; state.data.history.push(snap);
+  state.data.goals[0].title = '最新目标';
   await expect(page.locator('#pending')).toBeVisible({ timeout: 8000 });   // 下一次轮询拿到新版，只提示不替换
   assert.equal(await page.locator('#dHead h3').textContent(), '字体识别提速，判定结果不变');
   await page.locator('#pending').click();
@@ -65,18 +53,12 @@ test('poll_preserves_session_menu_focus', async ({ page, open }) => {
   assert.equal(await page.evaluate(() => (document.activeElement as HTMLElement).dataset.sid), 'fixture-a');
 });
 
-test('history_without_selected_branch_resets_to_overview', async ({ page, open }) => {
-  const d = fixture(); d.history[0].cards = d.history[0].cards.filter(c => c.id !== 'S2'); await open(d);
-  await page.locator('#c-S2 .branch').click();
-  await page.locator('#histBtn').click(); await page.locator('#hslider').fill('1');
-  await expect(page.locator('#reset')).toBeHidden(); assert(await page.locator('.card').count() > 1);
-});
 
 test('draft_renders_progressively', async ({ page, open }) => {
   const full = fixture();
   // C0 的标题先只写了 3 个字，下一次轮询写完：标题在同一个 DOM 节点里变长
   const head = full.cards[2].title.slice(0, 3);
-  const d: DataView = { ...full, syncN: 0, analyzing: true, history: [], goals: [], cards: [], edges: [], draft: { goals: full.goals, cards: [...full.cards.slice(0, 2), { ...full.cards[2], title: head }], edges: full.edges.slice(0, 2), live: { now: '草稿进行中' }, chars: 900, startedAt: 'x' } };
+  const d: DataView = { ...full, syncN: 0, analyzing: true, goals: [], cards: [], edges: [], draft: { goals: full.goals, cards: [...full.cards.slice(0, 2), { ...full.cards[2], title: head }], edges: full.edges.slice(0, 2), live: { now: '草稿进行中' }, chars: 900, startedAt: 'x' } };
   const state = await open(d); await page.locator('#c-C0').waitFor();
   assert.equal(await page.locator('#boot').isVisible(), false);
   assert.match((await page.locator('#stat').textContent())!, /已出 4 张卡/); assert.match((await page.locator('#notebar').textContent())!, /生成中/);
@@ -91,15 +73,4 @@ test('draft_renders_progressively', async ({ page, open }) => {
   assert.equal(await page.locator('#pending').isVisible(), false);
   assert.match((await page.locator('#dBody .kv b', { hasText: '关系' }).first().textContent())!, /^关系 [1-9]/);
   assert.doesNotMatch((await page.locator('#notebar').textContent())!, /生成中/); assert.deepEqual(state.errors, []);
-});
-
-test('history_delta_merges_with_held_history', async ({ page, open }) => {
-  const state = await open();
-  const next = structuredClone(state.data!); const snap = structuredClone(next.history[1]);
-  snap.at = 3; next.syncN = 3; next.updatedAt = 'n3'; next.historySince = 2; next.history = [snap]; state.data = next;
-  await expect(page.locator('#stat')).toHaveText(/#3/, { timeout: 8000 });   // 下一次轮询采纳 #3
-  await page.locator('#histBtn').click();
-  assert.equal(await page.locator('#hslider').getAttribute('max'), '3');
-  await page.locator('#hslider').fill('1');
-  assert.equal(await page.locator('#c-GOAL h4').textContent(), '旧目标正文');
 });

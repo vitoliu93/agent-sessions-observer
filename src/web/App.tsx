@@ -1,20 +1,21 @@
-/* 记录数据与当前阅读快照分开；历史、抽屉、地图始终读同一个 view。
+/* 抽屉、地图始终读同一个 view（当前这一版地图）。
    轮询与异步请求要读最新状态，所以状态放在一个可变 store 里，改完调 bump() 重绘。 */
 import { useEffect, useReducer, useRef } from 'react';
 import { ArrowUp, CircleAlert, FolderOpen, Info } from 'lucide-react';
-import type { Card, DataView, Edge, SessionItem } from '../shared/types.ts';
-import { cardsOf, chain, plan, snapshot, withOwnership, type View } from './lib.ts';
+import type { Card, DataView, Edge, Pulse, SessionItem } from '../shared/types.ts';
+import { cardsOf, chain, plan, withOwnership, type View } from './lib.ts';
 import Topbar from './components/Topbar.tsx';
-import LiveBar from './components/LiveBar.tsx';
+import LiveBar, { PulseBar } from './components/LiveBar.tsx';
 import MapView, { type Emph } from './components/MapView.tsx';
 import Drawer from './components/Drawer.tsx';
-import History from './components/History.tsx';
 import ThinkingWheel from './components/ThinkingWheel.tsx';
 import type { EdgeHoverInfo } from './components/Edges.tsx';
 
 export interface Store {
+  /** 快判结果：和地图分开更新，阅读中不替换地图时它照样刷新 */
+  pulse: Pulse | null;
+  review: DataView['review'] | null;
   data: DataView | null; pending: DataView | null; sessions: SessionItem[]; curSid: string | null;
-  viewTick: number; follow: boolean;
   selectedId: string | null; hoveredId: string | null;
   hoveredEdge: EdgeHoverInfo | null;
   drawerId: string | null; drawerShown: string | null; opener: Element | null; room: boolean;
@@ -25,7 +26,7 @@ export interface Store {
   /** 正在显示分析中的草稿（还没有第一版正式地图）；fast：分析中每秒拉一次 */
   drafting: boolean; fast: boolean;
   notice: string; stat: string; resyncDisabled: boolean; boot: { show: boolean; msg: string };
-  swOpen: boolean; histOpen: boolean;
+  swOpen: boolean;
   /** 布局稳定（卡片已定位可见）后执行：聚焦、滚动到卡片 */
   after: (() => void)[];
 }
@@ -36,11 +37,11 @@ export interface AppCtx { s: Store; a: Actions; view: View | null; ready: boolea
   focused: boolean; currentGoalId: string | null }
 
 const newStore = (): Store => ({
-  data: null, pending: null, sessions: [], curSid: null, viewTick: 0, follow: true,
+  pulse: null, review: null, data: null, pending: null, sessions: [], curSid: null,
   selectedId: null, hoveredId: null, hoveredEdge: null, drawerId: null, drawerShown: null, opener: null, room: false,
   branchId: '', expanded: new Set(), focusId: null, requestN: 0, lastKey: '', drafting: false, fast: false,
   notice: '', stat: '加载中…', resyncDisabled: false, boot: { show: false, msg: '正在读取会话…' },
-  swOpen: false, histOpen: false, after: [],
+  swOpen: false, after: [],
 });
 
 const errText = (e: unknown) => e instanceof Error ? e.message : String(e);
@@ -68,7 +69,7 @@ function createActions(s: Store, bump: () => void) {
     s.expanded.clear(); closeDrawer(false);
   }
   function clearMap(message: string) {
-    s.data = null; s.lastKey = ''; s.pending = null; s.drafting = false;
+    s.data = null; s.lastKey = ''; s.pending = null; s.drafting = false; s.pulse = null; s.review = null;
     resetView();
     s.boot = { show: true, msg: message };
     bump();
@@ -76,14 +77,12 @@ function createActions(s: Store, bump: () => void) {
   function adopt(d: DataView, key = `${d.sessionId}:${d.syncN}:${d.updatedAt || ''}`) {
     const switched = s.data?.sessionId !== d.sessionId;
     s.data = d; s.pending = null; s.drafting = !d.syncN;
-    if (switched) { resetView(); s.follow = true; s.viewTick = d.syncN; }
-    if (s.follow) s.viewTick = d.syncN;
+    if (switched) resetView();
     s.lastKey = key;
     render();
   }
   async function refresh() {
-    const n = ++s.requestN, sid = s.curSid || s.data?.sessionId || null, base = s.pending || s.data;
-    const since = base && base.sessionId === sid ? base.history?.at(-1)?.at || 0 : 0;
+    const n = ++s.requestN, sid = s.curSid || s.data?.sessionId || null;
     try {
       const list = await json<{ sessions?: SessionItem[] }>('/api/sessions');
       if (n !== s.requestN) return;
@@ -93,17 +92,16 @@ function createActions(s: Store, bump: () => void) {
         clearMap('尚未观察会话，请从左上角添加 session ID。');
         s.stat = '尚无会话'; s.resyncDisabled = true; return bump();
       }
-      const d = await json<DataView>('/api/data' + (sid ? `?sid=${encodeURIComponent(sid)}&since=${since}&boot=${encodeURIComponent(base?.boot || '')}` : ''));
+      const d = await json<DataView>('/api/data' + (sid ? `?sid=${encodeURIComponent(sid)}` : ''));
       if (n !== s.requestN) return;
-      if (d.historySince) d.history = [...(base?.history || []).filter(h => h.at <= d.historySince), ...d.history];
-      s.curSid = d.sessionId || sid;
+      s.curSid = d.sessionId || sid; s.pulse = d.pulse || null; s.review = d.review || null;
       const dr = d.analyzing ? d.draft : null, shown = dr ? dr.goals.length + dr.cards.length : 0;
       const failed = `分析失败：${d.lastError}。稍后会自动重试，也可以点「同步」立即重试。`;
       const waiting = dr?.chars
         ? `正在生成第一版地图：已收到 ${dr.chars} 字，等第一张卡出现…`
         : dr?.thinking
         ? `正在推演需求解决路径（已推演 ${dr.thinking.length} 字）…`
-        : '正在启动归纳推演：等模型开始输出…';
+        : d.engine === 'jev' ? 'Jev 正在画地图，几秒就好…' : '正在启动归纳推演：等模型开始输出…';
       s.boot = { show: !d.syncN && !shown, msg: d.lastError && !d.analyzing ? failed : d.analyzing ? waiting : '尚无摘要，请点击同步。' };
       s.stat = d.analyzing
         ? (shown
@@ -120,7 +118,7 @@ function createActions(s: Store, bump: () => void) {
         // 第一版还没出来：若已解析出卡片草稿，边收边画地图草稿
         if (dr?.goals.length) {
           const key = `${d.sessionId}:draft:${dr.chars}`;
-          return key === s.lastKey ? bump() : adopt({ ...d, goals: dr.goals, cards: dr.cards, edges: dr.edges, live: dr.live, history: [] }, key);
+          return key === s.lastKey ? bump() : adopt({ ...d, goals: dr.goals, cards: dr.cards, edges: dr.edges, live: dr.live }, key);
         }
         // 正在推演中（Thinking/ToolCalls 阶段）：保留完整数据视图让滚轮实时展示
         if (d.analyzing) {
@@ -132,8 +130,8 @@ function createActions(s: Store, bump: () => void) {
         return clearMap(s.boot.msg);
       }
       if (`${d.sessionId}:${d.syncN}:${d.updatedAt || ''}` === s.lastKey) return bump();
-      // 阅读中（详情、选中、回放、焦点在地图内）不替换正式地图，先提示；草稿直接换成正式版
-      if (s.data?.sessionId === d.sessionId && !s.drafting && (!s.follow || s.drawerId || s.selectedId || document.activeElement?.closest('#wrap'))) {
+      // 阅读中（详情、选中、焦点在地图内）不替换正式地图，先提示；草稿直接换成正式版
+      if (s.data?.sessionId === d.sessionId && !s.drafting && (s.drawerId || s.selectedId || document.activeElement?.closest('#wrap'))) {
         s.pending = d; return bump();
       }
       adopt(d);
@@ -163,7 +161,7 @@ function createActions(s: Store, bump: () => void) {
   return {
     refresh, openDrawer, closeDrawer,
     stable() { for (const f of s.after.splice(0)) f(); },
-    switchTo(sid: string) { s.curSid = sid; clearMap('正在读取所选会话…'); s.follow = true; s.swOpen = false; bump(); refresh(); },
+    switchTo(sid: string) { s.curSid = sid; clearMap('正在读取所选会话…'); s.swOpen = false; bump(); refresh(); },
     remove(sid: string) { if (sid === (s.curSid || s.data?.sessionId)) s.curSid = null; action('/api/sessions/remove', { id: sid }); },
     async add(input: HTMLInputElement) {
       const id = input.value.trim();
@@ -172,9 +170,7 @@ function createActions(s: Store, bump: () => void) {
       catch (e) { tell(errText(e)); }
     },
     resync() { action('/api/resync', { id: s.curSid || s.data?.sessionId }); },
-    takePending() { const d = s.pending; if (!d) return; s.follow = true; s.selectedId = null; adopt(d); },
-    slide(tick: number) { if (!s.data) return; s.viewTick = tick; s.follow = tick === s.data.syncN; s.selectedId = s.hoveredId = null; render(); },
-    back() { if (!s.data) return; s.follow = true; s.selectedId = null; adopt(s.pending || s.data); },
+    takePending() { const d = s.pending; if (!d) return; s.selectedId = null; adopt(d); },
     branch(id: string) { s.branchId = id; s.expanded.clear(); s.selectedId = null; render(); },
     reset() { resetView(); render(); },
     select(id: string) { s.selectedId = id; s.hoveredEdge = null; bump(); },
@@ -184,7 +180,6 @@ function createActions(s: Store, bump: () => void) {
     collapse(col: number) { s.expanded.delete(String(col)); render(); },
     background() { s.selectedId = s.hoveredId = null; s.hoveredEdge = null; bump(); },
     toggleMenu() { s.swOpen = !s.swOpen; bump(); },
-    toggleHist() { s.histOpen = !s.histOpen; bump(); },
     // 关系跳转：回到全局、展开目标所在列，再滚开抽屉
     jump(id: string, col: number) {
       s.notice = ''; s.branchId = ''; s.expanded.add(String(col));
@@ -221,7 +216,7 @@ export default function App() {
     return () => { clearTimeout(timer); document.removeEventListener('keydown', a.key); document.removeEventListener('click', a.docClick); };
   }, [a]);
 
-  const view = s.data ? snapshot(s.data, s.viewTick) : null;
+  const view: View | null = s.data;
   const ready = !!(view?.goals?.length && (s.data?.syncN || s.drafting));
   const all = ready ? cardsOf(view) : [], edges: Edge[] = !ready ? [] : s.drafting ? view!.edges || [] : withOwnership(all, view!.edges || []);   // 草稿里边写在最后，没写到前不补虚线
   const byId = new Map(all.map(c => [c.id, c]));
@@ -284,8 +279,8 @@ export default function App() {
     <Topbar app={app} />
     <main className="min-w-0 px-5 pt-6 pb-14 sm:px-7">
       <div className={s.drawerId ? "lg:mr-120" : undefined}>
+      <PulseBar app={app} />
       <LiveBar app={app} />
-      <History app={app} />
       <button id="pending" className="btn btn-outline mb-3 text-accent" hidden={!s.pending} onClick={() => a.takePending()}><ArrowUp className="size-3.5" />{s.pending ? `有新摘要 #${s.pending.syncN} · 点击更新` : ''}</button>
       <div id="notice" className="mb-3 flex items-start gap-2 rounded-md border border-warning/25 bg-paper p-3 text-[13px] text-warning wrap-anywhere" hidden={!s.notice} role="status" aria-live="polite"><CircleAlert className="mt-0.5" />{s.notice}</div>
       </div>

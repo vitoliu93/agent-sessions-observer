@@ -87,7 +87,7 @@ test('visible_and_folded_cover_all_once', async ({ page, open }) => {
 
 test('multiple_goals_dag', async ({ page, open }) => {
   const d = fixture(); const extra = (id: string, title: string) => ({ ...d.goals[0], id, title, st: 'doing' as const, acc: [] });
-  for (const x of [d, ...d.history]) {
+  for (const x of [d]) {
     x.goals.push(extra('GOAL2', '接着做：结果缓存'), extra('GOAL3', '推倒重来：换识别模型'));
     x.edges.push({ f: 'GOAL', t: 'GOAL2', v: '接着' }, { f: 'GOAL3', t: 'GOAL', v: '推翻' });
   }
@@ -126,7 +126,7 @@ test('focus_chain_then_back_to_full_map', async ({ page, open }) => {
 test('owned_cards_without_edges_stay_in_focus', async ({ page, open }) => {
   const d = fixture();
   const like = (id: string, type: string, goalId: string, title: string) => ({ ...d.cards.find(c => c.type === type)!, id, goalId, title });
-  for (const x of [d, ...d.history]) {
+  for (const x of [d]) {
     x.cards.push(like('S3', 'subgoal', 'S3', '收尾'), like('V10', 'verify', 'S3', '核对合并'), like('K10', 'concl', 'S3', '已收尾'));
     x.edges.push({ f: 'GOAL', t: 'S3', v: '拆成' }, { f: 'V10', t: 'K10', v: '支持' });
   }

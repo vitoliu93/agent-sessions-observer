@@ -5,11 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 
+// 这里的用例不测快判：开发机环境里有 key 时也不能连真实 Jev
+delete process.env.JEV_API_KEY; delete process.env.TYPESAFE_API_KEY;
 const root = path.resolve(import.meta.dir, '..');
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function until<T>(fn: () => Promise<T>, ms = 3000): Promise<T> { const end = Date.now() + ms; while (Date.now() < end) { const v = await fn(); if (v) return v; await wait(30); } throw new Error('timeout'); }
 
-test('HTTP: 空启动、未知 sid=404、去重、失败保留及自动重试、完整快照', { timeout: 15000 }, async () => {
+test('HTTP: 空启动、未知 sid=404、去重、失败保留及自动重试', { timeout: 15000 }, async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'observe-http-'));
   const sid = 'session-a';
   const sessionDir = path.join(tmp, '.claude/projects/p'); fs.mkdirSync(sessionDir, { recursive: true });
@@ -29,13 +31,12 @@ import fs from 'node:fs'; const n=(Number(fs.existsSync(process.env.COUNT)&&fs.r
     await fetch(`http://127.0.0.1:${port}/api/resync`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: sid }) });
     const first = await until(async () => { const x = await (await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`)).json(); return x.syncN === 1 && x; });
     assert.equal(Number(fs.readFileSync(count, 'utf8')), 1);
-    assert.equal(first.history[0].cards[0].facts[0], 'OLD_FACT');
+    assert.equal(first.cards[0].facts[0], 'OLD_FACT');
     await fetch(`http://127.0.0.1:${port}/api/resync`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: sid }) });
     const second = await until(async () => { const x = await (await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`)).json(); return x.syncN === 2 && x; });
     assert.equal(second.cards[0].facts[0], 'NEW_FACT');
-    assert.equal(second.history[0].cards[0].facts[0], 'OLD_FACT');
-    assert.equal(second.history[0].goals[0].st, 'unknown');
-    assert.equal(second.history[0].stamps[0].at, 1);
+    assert.equal(second.goals[0].st, 'unknown');
+    assert.equal(second.history, undefined);   // 不留历史版本
     const post = (route: string, body: unknown, headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${port}${route}`, {method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
     assert.equal((await post('/api/sessions/add',{id:'session'})).status,200);
     assert.equal((await (await fetch(`http://127.0.0.1:${port}/api/sessions`)).json()).sessions.length,1);
@@ -46,12 +47,7 @@ import fs from 'node:fs'; const n=(Number(fs.existsSync(process.env.COUNT)&&fs.r
     assert.equal(failed.syncN,2);assert.equal(failed.cards[0].facts[0],'NEW_FACT');
     await wait(400);assert.equal(Number(fs.readFileSync(count,'utf8')),3);
     const recovered=await until(async()=>{const x=await(await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}`)).json();return x.syncN===3&&x;},8000);
-    assert.equal(recovered.lastError,null);assert.equal(recovered.history.length,3);
-    assert.equal(recovered.history[0].cards[0].facts[0],'OLD_FACT');
-    const delta=await(await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}&since=2&boot=${recovered.boot}`)).json();
-    assert.deepEqual(delta.history.map((h: any)=>h.at),[3]);assert.equal(delta.historySince,2);
-    // 服务重启（进程标识不同）或客户端序号超前：给完整历史
-    for(const q of ["since=2&boot=old-process",`since=9&boot=${recovered.boot}`]){const full=await(await fetch(`http://127.0.0.1:${port}/api/data?sid=${sid}&${q}`)).json();assert.deepEqual(full.history.map((h: any)=>h.at),[1,2,3]);assert.equal(full.historySince,0);}
+    assert.equal(recovered.lastError,null);
     assert.equal((await(await fetch(`http://127.0.0.1:${port}/api/sessions`)).json()).sessions[0].title,"");
   } finally { proc.kill(); await proc.exited; fs.rmSync(tmp,{recursive:true,force:true}); }
 });
@@ -141,6 +137,8 @@ test('Node 产物：静态托管、SPA 回退、目录穿越不泄露文件', { 
     assert.match(await rawGet(port, '/api/sessions', `127.0.0.1:${port}`), /^HTTP\/1.1 200/);
     assert.match(await rawGet(port, '/api/sessions', 'localhost:8080'), /^HTTP\/1.1 200/, 'SSH 端口转发时端口不同也放行');
     assert.match(await rawGet(port, '/api/sessions', '127.0.0.1.evil.example'), /^HTTP\/1.1 403/);
+    assert.match(await rawGet(port, '//['), /^HTTP\/1.1 400/);
+    assert.match(await rawGet(port, '/api/sessions'), /^HTTP\/1.1 200/, '坏 URL 不能终止服务');
     for (const target of ['/../SECRET.txt', '/..%2fSECRET.txt', '/..%2f..%2fpackage.json', '/%2e%2e/SECRET.txt']) {
       const res = await rawGet(port, target);
       assert(!res.includes('SECRET') && !res.includes('"name"'), `${target} leaked: ${res.slice(-80)}`);
@@ -201,4 +199,18 @@ test('模型 CLI：没指定时用本机已安装的第一个；指定的没装�
     assert.match(out, /分析模型：claude（haiku）（本机找不到 codex，自动改用 claude）/);
     p.kill(); await p.exited;
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('退出观察台会终止正在运行的模型进程组', {timeout:10000}, async()=>{
+  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'observe-stop-')),dir=path.join(tmp,'.claude/projects/p'),pidfile=path.join(tmp,'pid');fs.mkdirSync(dir,{recursive:true});
+  fs.writeFileSync(path.join(dir,'stop.jsonl'),JSON.stringify({type:'user',message:{content:'please test'}})+'\n');
+  const cli=path.join(tmp,'model');fs.writeFileSync(cli,`#!/bin/sh\necho $$ > '${pidfile}'\ncat >/dev/null\nsleep 120\n`,{mode:0o700});
+  const proc=Bun.spawn([process.execPath,'src/cli/index.ts','stop','--port','47724','--cli',cli,'--no-jev'],{cwd:root,env:{...process.env,HOME:tmp},stdout:'pipe',stderr:'pipe'});
+  let pid=0;
+  try{
+    await until(async()=>fs.existsSync(pidfile));pid=Number(fs.readFileSync(pidfile,'utf8'));
+    proc.kill();await proc.exited;
+    await until(async()=>{try{process.kill(pid,0);return false;}catch{return true;}});
+    assert.equal(await fetch('http://127.0.0.1:47724/api/sessions').then(()=>true,()=>false),false);
+  }finally{proc.kill();await proc.exited;if(pid)try{process.kill(-pid,'SIGKILL');}catch{}fs.rmSync(tmp,{recursive:true,force:true});}
 });

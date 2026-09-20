@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { ArrowRight, ArrowUpRight } from 'lucide-react';
-import type { Card as CardT } from '../../shared/types.ts';
+import { WEAK_AT, type Card as CardT } from '../../shared/types.ts';
 import type { AppCtx } from '../App.tsx';
 import { stateAt, types } from '../lib.ts';
 import Status from './Status.tsx';
@@ -22,7 +22,9 @@ export default function Card({ c, style, hl, out, sel, app: { a } }: Props) {
     onBlur={e => { if (e.target === e.currentTarget) a.hover(null); }}
     onKeyDown={e => { if (e.target === e.currentTarget && e.key === 'Enter') { e.preventDefault(); a.openDrawer(c.id); } }}>
     <div className="mb-2 flex min-h-5 flex-wrap items-center justify-between gap-1.5 text-[11px] text-muted">
-      <span>{['change', 'risk', 'gap', 'group'].includes(type) ? types[type] : ''}</span><Status state={st} type={type} />
+      <span>{['change', 'risk', 'gap', 'group'].includes(type) ? types[type] : ''}</span>{c.support !== undefined && c.support < WEAK_AT
+        ? <span className="weak inline-flex shrink-0 items-center gap-1 text-[11px] text-warning" title={`快判核对：引用的原文撑得住这张卡的可能只有 ${Math.round(c.support * 100)}%`}>证据弱</span>
+        : <Status state={st} type={type} />}
     </div>
     <h4 className={`mb-1.5 line-clamp-2 font-semibold wrap-anywhere ${type === 'goal' ? 'text-base' : 'text-sm'}`}>{c.title}</h4>
     {type === 'goal' ? <ul className="acc my-3 list-disc space-y-1.5 pl-4 text-[13px] text-muted">{acc.slice(0, 3).map((x, i) => <li key={i} className="line-clamp-2 wrap-anywhere">{x}</li>)}</ul>

@@ -11,7 +11,6 @@ export function fixture(): DataView {
   for(let i=0;i<5;i++)edges.push({f:'V'+i,t:'K'+i,v:'支持'},{f:'R'+i,t:'C'+i,v:'妨碍'});
   for(let i=0;i<4;i++)edges.push({f:'K'+i,t:'G'+i,v:'留下缺口'});
   for(let i=0;i<10;i++)edges.push({f:i%2?'S2':'S1',t:'V'+i,v:'检查'});
-  const base:Omit<Snapshot,'at'>={goals:[goal],cards,edges,live:{now:'agent-0 检查并发结果；agent-3 修复排序。',known:'仅30秒样本118s；还没有全量判定一致证据。',next:'补齐基线验证。'},children:Array.from({length:16},(_,i)=>({key:`agent-${i}`,label:`agent-${i}`,kind:'agent',events:1,matched:'exact'})),note:'可重复测试夹具，不是生产事实。',stamps:[{at:1,data:'10:00:00',summary:'10:00:01'},{at:2,data:'10:01:00',summary:'10:01:01'}],updatedAt:'2026-09-16T10:01:01Z',dataReadAt:null};
-  const old=structuredClone(base);old.goals[0].title='旧目标正文';old.cards[2].facts=['旧事实，不含新结论'];old.live.known='旧结果';
-  return {...base,sessionId:'fixture-a',lastError:null,analyzing:false,draft:null,boot:'fixture',historySince:0,syncN:2,history:[{...old,at:1},{...structuredClone(base),at:2}]};
+  const base:Snapshot={goals:[goal],cards,edges,live:{now:'agent-0 检查并发结果；agent-3 修复排序。',known:'仅30秒样本118s；还没有全量判定一致证据。',next:'补齐基线验证。'},children:Array.from({length:16},(_,i)=>({key:`agent-${i}`,label:`agent-${i}`,kind:'agent',events:1,matched:'exact'})),note:'可重复测试夹具，不是生产事实。',updatedAt:'2026-09-16T10:01:01Z',dataReadAt:'10:01:00'};
+  return {...base,sessionId:'fixture-a',lastError:null,analyzing:false,draft:null,pulse:null,engine:'cli',review:{on:false,running:false,at:null,unreviewed:0,error:null},syncN:2};
 }

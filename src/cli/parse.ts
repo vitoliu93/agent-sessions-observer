@@ -18,6 +18,8 @@ export interface SessionEvent {
   ts?: string | null;
   cwd?: string;
   side: boolean;
+  /** 系统塞进来的 user 行（技能正文、图片说明、压缩摘要）：不是人打的字 */
+  meta?: boolean;
   uuid?: string | null;
   parent?: string | null;
   text: string;
@@ -36,6 +38,7 @@ export interface ParsedSession {
 
 export interface SessionInfo { file: string; project: string; sessionId: string }
 export interface IndexedSession extends SessionInfo { size?: number; mtime?: number; birthtime?: number }
+export const MAX_SESSION_BYTES = 64 * 1024 * 1024;
 
 export function projectsDir(): string {
   return path.join(process.env.HOME || os.homedir(), '.claude', 'projects');
@@ -100,7 +103,17 @@ function resultText(content: unknown): string {
 /** 解析一个 session 文件为事件数组（tool_result 也归入 user 行） */
 export function readTextSnapshot(file: string): { raw: string; signature: string; mtime: number } {
   // 会话可能正被追加：只取读到的完整行；签名取读前状态，之后的追加会在下次检查时触发同步
-  const before = fs.statSync(file), text = fs.readFileSync(file, 'utf8');
+  const fd = fs.openSync(file, 'r');
+  let before: fs.Stats, text: string;
+  try {
+    before = fs.fstatSync(fd);
+    if (!before.isFile() || before.size > MAX_SESSION_BYTES) throw new Error('会话必须是普通文件且不超过 64 MiB，请拆分后观察');
+    // 只读检查过的长度，避免检查后快速追加或特殊文件绕过大小限制。
+    const buf = Buffer.alloc(before.size);
+    let n = 0;
+    while (n < buf.length) { const got = fs.readSync(fd, buf, n, buf.length - n, n); if (!got) break; n += got; }
+    text = buf.subarray(0, n).toString('utf8');
+  } finally { fs.closeSync(fd); }
   const cut = text.lastIndexOf('\n') + 1;
   let raw = text; try { JSON.parse(text.slice(cut) || '{}'); } catch { raw = text.slice(0, cut); } // 末行写了一半才丢
   return { raw, signature: `${file}:${before.size}:${before.mtimeMs}`, mtime: before.mtimeMs };
@@ -139,7 +152,7 @@ export function parseSession(file: string): ParsedSession {
     if (!text.trim() && !hasTool) continue;
     events.push({
       i: events.length, line: i + 1, type: t, ts: d.timestamp, cwd: d.cwd,
-      side: !!d.isSidechain, uuid: d.uuid, parent: d.parentUuid,
+      side: !!d.isSidechain, meta: !!(d.isMeta || d.isCompactSummary) || undefined, uuid: d.uuid, parent: d.parentUuid,
       text, blocks,
     });
   }
@@ -154,7 +167,7 @@ export function firstUserInfo(file: string, maxLines = 400): { text: string; ts:
   let acc = '';
   let read = 0, lineCount = 0;
   try {
-    while (lineCount < maxLines) {
+    while (lineCount < maxLines && read < 4 * 1024 * 1024) {
       const n = fs.readSync(fd, buf, 0, buf.length, read);
       acc += n ? decoder.write(buf.subarray(0, n)) : decoder.end() + '\n'; read += n;
       const lines = acc.split('\n'); acc = lines.pop()!;

@@ -29,7 +29,7 @@ test('relationship_jumps_to_target_in_focus', async ({ page, open }) => {
 
 test('narrow_view_and_long_detail_remain_readable', async ({ page, open }) => {
   await page.setViewportSize({ width: 900, height: 900 });
-  const d = fixture(); d.history[1].cards[2].facts = ['LONG_' + 'x'.repeat(3000)]; await open(d);
+  const d = fixture(); d.cards[2].facts = ['LONG_' + 'x'.repeat(3000)]; await open(d);
   await page.locator('.card.change .dtl').first().click();
   const dims = await page.evaluate(() => ({ w: document.documentElement.scrollWidth, v: innerWidth, body: document.querySelector<HTMLElement>('#dBody')!.scrollWidth, drawer: document.querySelector<HTMLElement>('#dBody')!.clientWidth }));
   assert.equal(dims.w, dims.v); assert.equal(dims.body, dims.drawer);
