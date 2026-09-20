@@ -10,11 +10,13 @@ import MapView, { type Emph } from './components/MapView.tsx';
 import Drawer from './components/Drawer.tsx';
 import History from './components/History.tsx';
 import ThinkingWheel from './components/ThinkingWheel.tsx';
+import type { EdgeHoverInfo } from './components/Edges.tsx';
 
 export interface Store {
   data: DataView | null; pending: DataView | null; sessions: SessionItem[]; curSid: string | null;
   viewTick: number; follow: boolean;
   selectedId: string | null; hoveredId: string | null;
+  hoveredEdge: EdgeHoverInfo | null;
   drawerId: string | null; drawerShown: string | null; opener: Element | null; room: boolean;
   branchId: string; expanded: Set<string>;
   /** 地图按哪张卡的链路排版；选中后稍晚跟上，让链路外的卡先淡出 */
@@ -35,7 +37,7 @@ export interface AppCtx { s: Store; a: Actions; view: View | null; ready: boolea
 
 const newStore = (): Store => ({
   data: null, pending: null, sessions: [], curSid: null, viewTick: 0, follow: true,
-  selectedId: null, hoveredId: null, drawerId: null, drawerShown: null, opener: null, room: false,
+  selectedId: null, hoveredId: null, hoveredEdge: null, drawerId: null, drawerShown: null, opener: null, room: false,
   branchId: '', expanded: new Set(), focusId: null, requestN: 0, lastKey: '', drafting: false, fast: false,
   notice: '', stat: '加载中…', resyncDisabled: false, boot: { show: false, msg: '正在读取会话…' },
   swOpen: false, histOpen: false, after: [],
@@ -51,7 +53,7 @@ async function json<T>(url: string, body?: unknown): Promise<T> {
 const $ = (id: string) => document.getElementById(id);
 
 function createActions(s: Store, bump: () => void) {
-  const render = () => { s.hoveredId = null; bump(); };
+  const render = () => { s.hoveredId = null; s.hoveredEdge = null; bump(); };
   const tell = (message: string) => { s.notice = message; bump(); };
 
   function closeDrawer(focus = true) {
@@ -62,7 +64,7 @@ function createActions(s: Store, bump: () => void) {
     bump();
   }
   function resetView() {
-    s.selectedId = s.hoveredId = null; s.branchId = '';
+    s.selectedId = s.hoveredId = null; s.hoveredEdge = null; s.branchId = '';
     s.expanded.clear(); closeDrawer(false);
   }
   function clearMap(message: string) {
@@ -175,11 +177,12 @@ function createActions(s: Store, bump: () => void) {
     back() { if (!s.data) return; s.follow = true; s.selectedId = null; adopt(s.pending || s.data); },
     branch(id: string) { s.branchId = id; s.expanded.clear(); s.selectedId = null; render(); },
     reset() { resetView(); render(); },
-    select(id: string) { s.selectedId = id; bump(); },
-    hover(id: string | null) { s.hoveredId = id; bump(); },
+    select(id: string) { s.selectedId = id; s.hoveredEdge = null; bump(); },
+    hover(id: string | null) { s.hoveredId = id; if (id) s.hoveredEdge = null; bump(); },
+    hoverEdge(edge: EdgeHoverInfo | null) { s.hoveredEdge = edge; if (edge) s.hoveredId = null; bump(); },
     expand(col: number, firstId: string) { s.expanded.add(String(col)); s.after.push(() => $('c-' + firstId)?.focus()); render(); },
     collapse(col: number) { s.expanded.delete(String(col)); render(); },
-    background() { s.selectedId = s.hoveredId = null; bump(); },
+    background() { s.selectedId = s.hoveredId = null; s.hoveredEdge = null; bump(); },
     toggleMenu() { s.swOpen = !s.swOpen; bump(); },
     toggleHist() { s.histOpen = !s.histOpen; bump(); },
     // 关系跳转：回到全局、展开目标所在列，再滚开抽屉
@@ -193,7 +196,7 @@ function createActions(s: Store, bump: () => void) {
       if (e.key !== 'Escape') return;
       if (s.drawerId) closeDrawer();
       else if (s.swOpen) { s.swOpen = false; bump(); $('swBtn')?.focus(); }
-      else { s.selectedId = s.hoveredId = null; bump(); }
+      else { s.selectedId = s.hoveredId = null; s.hoveredEdge = null; bump(); }
     },
     docClick(e: MouseEvent) {
       const t = e.target as Element;
@@ -235,14 +238,37 @@ export default function App() {
   s.branchId = p.branch;
   if (s.drawerId && s.drawerId !== '__LIVE__' && s.drawerId !== '__INFO__' && !byId.has(s.drawerId)) { s.drawerId = null; s.room = false; }
 
-  // 高亮：选中看整条链路；没选中时悬停看直接关系。
+  // 高亮：选中看整条链路；没选中时悬停看直接关系或连线两端。
   // 聚焦时不理会悬停：卡片重排后会滑到鼠标下，跟着变高亮会乱
-  const hover = chainIds ? null : s.hoveredId, active = !!(hover || chainIds);
-  const ids: Set<string> = hover ? new Set([hover]) : chainIds || new Set();
-  const direct = (e: Edge) => hover ? e.f === hover || e.t === hover : !!chainIds && chainIds.has(e.f) && chainIds.has(e.t);
+  const hover = chainIds ? null : s.hoveredId;
+  const hoverEdge = chainIds ? null : s.hoveredEdge;
+  const active = !!(hover || hoverEdge || chainIds);
+  const ids: Set<string> = hover
+    ? new Set([hover])
+    : hoverEdge
+    ? new Set([hoverEdge.f, hoverEdge.t, ...hoverEdge.rels.flatMap(e => [e.f, e.t])])
+    : chainIds
+    ? new Set(chainIds)
+    : new Set();
+  const hoverEdgeRels = hoverEdge ? new Set(hoverEdge.rels) : null;
+  const direct = (e: Edge) => {
+    if (hoverEdgeRels) return hoverEdgeRels.has(e);
+    if (hover) return e.f === hover || e.t === hover;
+    return !!chainIds && chainIds.has(e.f) && chainIds.has(e.t);
+  };
   const hl = new Set(ids);
   if (hover) for (const e of edges) if (direct(e)) { hl.add(e.f); hl.add(e.t); }
-  const emph: Emph = { active, hl, direct, out: chainIds, groups: new Set([...hl].map(id => p.cardGroup.get(id)).filter((g): g is string => !!g)) };
+  const emph: Emph = {
+    active,
+    hl,
+    direct,
+    out: chainIds,
+    groups: new Set([
+      ...[...hl].map(id => id.startsWith('fold-') ? id : p.cardGroup.get(id)).filter((g): g is string => !!g),
+      ...(hoverEdge ? [hoverEdge.f, hoverEdge.t].filter(id => id.startsWith('fold-')) : []),
+    ]),
+    edgeHovered: !!hoverEdge,
+  };
 
   // 地图当前在看哪个目标：只剩一个目标时才算，概览摆着全部目标时没有「当前」
   const goalsShown = p.cols[0].filter(c => c.type === 'goal');

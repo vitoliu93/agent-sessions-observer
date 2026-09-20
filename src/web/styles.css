@@ -35,20 +35,44 @@
 /* 实测坐标、关系走线与选中态属于地图，普通布局使用组件内的 Tailwind 类。 */
 .wrap { position: relative; overflow: auto; transition: height .25s ease; }
 #room { position: absolute; top: 0; width: 1px; height: 1px; }
-.card, .foldentry { position: absolute; z-index: 2; transition: top .25s ease, opacity .15s, border-color .15s; }
+.card, .foldentry { position: absolute; z-index: 2; transition: top .25s ease, opacity .15s, border-color .15s, box-shadow .15s; }
 .card.sel { border-color: var(--color-accent); outline: 1px solid var(--color-accent); }
-.card.hl, .foldentry.hl { border-color: #91afa0; }
+.card.hl {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent), 0 8px 24px -4px rgba(44, 102, 87, 0.28);
+  z-index: 10;
+}
+.foldentry.hl {
+  border-color: var(--color-accent);
+  background: var(--color-soft);
+  color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent);
+  z-index: 10;
+}
 .card.out, .foldentry.out { opacity: 0; pointer-events: none; }
 .focusmode .card:not(.hl) { background: #fafbfa; }
+/* 连线悬停模式：其余无关卡片与折叠项适度减淡，形成聚光灯聚焦 */
+.edge-hovered .card:not(.hl):not(.sel),
+.edge-hovered .foldentry:not(.hl) {
+  opacity: .38;
+}
 .colhead { position: absolute; top: 0; z-index: 2; }
 svg.edges { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
-svg.edges path[data-edge] { transition: opacity .15s; }
+svg.edges path[data-edge] { transition: opacity .15s, stroke-width .15s; }
 svg.edges path.ctx { opacity: .45; }
 svg.edges path.main { opacity: .8; }
-svg.edges path.hl { stroke: var(--color-accent); opacity: 1; }
+svg.edges path.hl { stroke: var(--color-accent); stroke-width: 2.5px; opacity: 1; filter: drop-shadow(0 0 2px rgba(44, 102, 87, 0.35)); }
 svg.edges path.implied { stroke-dasharray: 5 4; }
 svg.edges text { display: none; font-size: 11px; paint-order: stroke; stroke: var(--color-canvas); stroke-width: 5px; stroke-linejoin: round; }
 svg.edges text.show { display: inline; }
+svg.edges text.hl {
+  display: inline !important;
+  opacity: 1 !important;
+  font-weight: 600;
+  font-size: 11.5px;
+  stroke: #ffffff;
+  stroke-width: 6px;
+}
 .focusmode svg.edges path[data-edge]:not(.hl) { opacity: .08; }
 .focusmode svg.edges text:not(.hl) { opacity: 0; }
 

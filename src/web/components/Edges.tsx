@@ -1,15 +1,18 @@
 /* 竖直段只走列间空隙，横向段按实测坐标挑一条不压卡片的高度，所以线待在两端卡片附近，不再冲到画布顶。折叠映射只代表集合。 */
-import { Fragment, useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import type { Card, Edge } from '../../shared/types.ts';
 import { isOpen } from '../lib.ts';
 import type { Emph, Pos } from './MapView.tsx';
 
+export interface EdgeHoverInfo { f: string; t: string; rels: Edge[] }
+
 interface Props {
   ready: boolean; W: number; H: number; gap: number; edges: Edge[]; byId: Map<string, Card>;
   pos: Record<string, Pos>; cardGroup: Map<string, string>; emph: Emph;
+  onHoverEdge: (info: EdgeHoverInfo | null) => void;
 }
 
-export default function Edges({ ready, W, H, gap, edges, byId, pos, cardGroup, emph }: Props) {
+export default function Edges({ ready, W, H, gap, edges, byId, pos, cardGroup, emph, onHoverEdge }: Props) {
   const ref = useRef<SVGSVGElement>(null);
 
   // 标签逐个显示并实测：越界或与卡片/已放标签重叠就隐藏
@@ -20,6 +23,8 @@ export default function Edges({ ready, W, H, gap, edges, byId, pos, cardGroup, e
       const show = text.dataset.cand === '1';
       text.classList.toggle('show', show);
       if (!show) continue;
+      // 高亮标签（用户关注的线）强制保留并显示
+      if (text.classList.contains('hl')) { placed.push(text.getBoundingClientRect()); continue; }
       const r = text.getBoundingClientRect(), overlap = (x: DOMRect) => r.left < x.right && r.right > x.left && r.top < x.bottom && r.bottom > x.top;
       if (r.left < bounds.left || r.right > bounds.right || r.top < bounds.top || r.bottom > bounds.bottom ||
         placed.some(overlap) || rects.some(overlap)) text.classList.remove('show');
@@ -69,19 +74,44 @@ export default function Edges({ ready, W, H, gap, edges, byId, pos, cardGroup, e
     const cand = emph.active ? hit : true;
     const label = edge.v + (edge.rels.length > 1 ? ` ×${edge.rels.length}` : '') +
       (edge.f.startsWith('fold-') || edge.t.startsWith('fold-') ? ' · 组内' : '');
-    return <Fragment key={key}>
-      <path d={route} fill="none" stroke="#8a9e94" strokeWidth="1.2" markerEnd="url(#arrow)" data-edge="1"
-        className={`${main ? 'main' : 'ctx'}${hit ? ' hl' : ''}${edge.v === '包含' ? ' implied' : ''}`} />
-      <text fill="#606f68" textAnchor={straight ? 'start' : 'middle'}
-        x={straight ? cx + 8 : same ? Math.max(4, a.x - half) + 14 : adjacent ? (exit + enter) / 2 : (exit + enter) / 2}
-        y={same || adjacent ? (ay + by) / 2 : lane - 4} className={hit ? 'hl' : undefined} data-cand={cand ? '1' : undefined}>{label}</text>
-    </Fragment>;
+    const fromTitle = byId.get(edge.f)?.title || (edge.f.startsWith('fold-') ? '折叠分组' : edge.f);
+    const toTitle = byId.get(edge.t)?.title || (edge.t.startsWith('fold-') ? '折叠分组' : edge.t);
+    const tip = `${fromTitle} → [${edge.v}] → ${toTitle}`;
+    const hitInfo = { f: edge.f, t: edge.t, rels: edge.rels };
+
+    return (
+      <g key={key} className={`edge-group${hit ? ' hl' : ''}`}
+        onMouseEnter={() => onHoverEdge(hitInfo)} onMouseLeave={() => onHoverEdge(null)}>
+        <title>{tip}</title>
+        {/* 透明加宽感应路径，方便鼠标轻松 hover */}
+        <path d={route} fill="none" stroke="transparent" strokeWidth="18" strokeLinecap="round" strokeLinejoin="round"
+          data-edge-hit="1" style={{ pointerEvents: 'stroke', cursor: 'pointer' }} />
+        {/* 可见连线 */}
+        <path d={route} fill="none" stroke={hit ? '#2c6657' : '#8a9e94'} strokeWidth={hit ? '2.5' : '1.2'}
+          markerEnd={hit ? 'url(#arrow-hl)' : 'url(#arrow)'} data-edge="1"
+          style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+          className={`${main ? 'main' : 'ctx'}${hit ? ' hl' : ''}${edge.v === '包含' ? ' implied' : ''}`} />
+        {/* 动词标签 */}
+        <text fill={hit ? '#1b4339' : '#606f68'} textAnchor={straight ? 'start' : 'middle'}
+          x={straight ? cx + 8 : same ? Math.max(4, a.x - half) + 14 : adjacent ? (exit + enter) / 2 : (exit + enter) / 2}
+          y={same || adjacent ? (ay + by) / 2 : lane - 4} className={hit ? 'hl' : undefined} data-cand={cand ? '1' : undefined}
+          style={{ pointerEvents: 'all', cursor: 'pointer' }}>
+          {label}
+        </text>
+      </g>
+    );
   });
 
   return (
     <svg className="edges" id="edges" ref={ref} width={W} height={H}>
-      {ready && <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill="#8a9e94" /></marker></defs>}
+      {ready && <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#8a9e94" />
+        </marker>
+        <marker id="arrow-hl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#2c6657" />
+        </marker>
+      </defs>}
       {views}
     </svg>
   );

@@ -143,3 +143,14 @@ test('card_click_closes_open_menus', async ({ page, open }) => {
   await page.locator('#c-GOAL').click(); assert.equal(await page.locator('#swMenu.open').count(), 0);
   await page.locator('#c-S1').click(); assert.equal(await page.locator('#c-S1.sel').count(), 1);
 });
+
+test('hovered_edge_highlights_endpoints_and_line', async ({ page, open }) => {
+  await open();
+  const group = page.locator('#edges .edge-group').first();
+  await group.hover({ force: true });
+  await expect(page.locator('#edges .edge-group.hl')).toHaveCount(1);
+  const hlCount = await page.locator('.card.hl, .foldentry.hl').count();
+  assert(hlCount >= 2, `两端卡片或折叠组应高亮，实际高亮数量: ${hlCount}`);
+  await page.locator('#wrap').hover({ position: { x: 10, y: 10 }, force: true });
+  await expect(page.locator('#edges .edge-group.hl')).toHaveCount(0);
+});

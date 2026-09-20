@@ -9,7 +9,7 @@ import Edges from './Edges.tsx';
 
 export interface Pos { x: number; y: number; w: number; h: number }
 /** out：选中卡的链路；链路外的卡淡出 */
-export interface Emph { active: boolean; hl: Set<string>; groups: Set<string>; direct: (e: Edge) => boolean; out: Set<string> | null }
+export interface Emph { active: boolean; hl: Set<string>; groups: Set<string>; direct: (e: Edge) => boolean; out: Set<string> | null; edgeHovered?: boolean }
 
 const HEADS = ['目标', '验收要求', '修改与问题', '验证与证据', '结果与缺口'];
 const PAD = 8, GAP = 36;
@@ -65,8 +65,9 @@ export default function MapView({ app, plan, emph, edges }: { app: AppCtx; plan:
   };
   const foldEntry = (i: number, list: CardT[]) => {
     const failed = list.filter(c => stateAt(c) === 'failed').length;
+    const isHl = emph.active && (emph.groups.has('fold-' + i) || emph.hl.has('fold-' + i));
     return <button id={'fold-' + i} type="button" style={place('fold-' + i, i)}
-      className={`foldentry rounded-md border border-transparent px-1 py-2 text-left text-xs text-muted hover:text-accent${emph.active && emph.groups.has('fold-' + i) ? ' hl' : ''}${emph.out && !list.some(c => emph.out!.has(c.id)) ? ' out' : ''}`}
+      className={`foldentry rounded-md border border-transparent px-1 py-2 text-left text-xs text-muted hover:text-accent${isHl ? ' hl' : ''}${emph.out && !list.some(c => emph.out!.has(c.id)) ? ' out' : ''}`}
       onClick={() => a.expand(i, list[0].id)}>
       <span className="t1 flex items-center gap-1"><ChevronRight className="size-3.5" />{`另 ${list.length} 条记录`}</span>
       <span className="t2 mt-1 block pl-4 text-[11px] text-warning">{[list.filter(isOpen).length ? `${list.filter(isOpen).length} 项风险/缺口待解决` : '', failed ? `${failed} 条失败记录` : ''].filter(Boolean).join(' · ')}</span>
@@ -74,11 +75,11 @@ export default function MapView({ app, plan, emph, edges }: { app: AppCtx; plan:
   };
 
   return (
-    <div className={`wrap${emph.active ? ' focusmode' : ''}`} id="wrap" ref={wrapRef} style={{ height: layout.height, transition: placed.current.size ? undefined : 'none' }}
+    <div className={`wrap${emph.active ? ' focusmode' : ''}${emph.edgeHovered ? ' edge-hovered' : ''}`} id="wrap" ref={wrapRef} style={{ height: layout.height, transition: placed.current.size ? undefined : 'none' }}
       onClick={e => { if (e.target === wrapRef.current || (e.target as Element).id === 'edges') a.background(); }}>
       {/* 排版一变就重建连线层，让连线等卡片滑到位后再淡入 */}
       <Edges key={layout.n} ready={ready} W={W} H={Math.max(0, layout.height - 2)} gap={GAP} edges={edges} byId={byId} pos={layout.pos}
-        cardGroup={plan.cardGroup} emph={emph} />
+        cardGroup={plan.cardGroup} emph={emph} onHoverEdge={a.hoverEdge} />
       {ready && plan.cols.map((pool, i) => <Fragment key={i}>
         <div className="colhead flex h-8 items-start justify-between gap-1 border-b border-line text-xs text-muted" style={{ left: x(i), width: cw }}>
           {HEADS[i]}{s.expanded.has(String(i)) && <> <button className="hover:text-accent" data-col={i} onClick={() => a.collapse(i)}>收起</button></>}
